@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "recommendation": {
+      "title": "Recommendation",
+      "description": "A strategic platform optimization or feature enhancement recommendation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the recommendation"
+        },
+        "title": {
+          "type": "string",
+          "description": "The recommendation title"
+        },
+        "category": {
+          "type": "string",
+          "description": "Technical or system area of the recommendation"
+        },
+        "impact": {
+          "type": "string",
+          "enum": ["Low", "Medium", "High", "Critical"],
+          "description": "Business or performance impact level"
+        },
+        "effort": {
+          "type": "string",
+          "enum": ["Low", "Medium", "High"],
+          "description": "Implementation effort level"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Proposed", "In Progress", "Completed", "Deferred"],
+          "description": "Current execution status"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed explanation of the action plan and technical steps"
+        },
+        "assignedTo": {
+          "type": "string",
+          "description": "Team or individual assigned to the task"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["title", "category", "impact", "effort", "status", "description", "assignedTo"]
+    }
+  },
+  "firestore": {
+    "/recommendations/{recommendationId}": {
+      "schema": "recommendation",
+      "description": "Global platform recommendations and action plans managed by administrators"
+    }
+  }
+}

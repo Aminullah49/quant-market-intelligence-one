@@ -1,0 +1,6 @@
+{
+  "name": "Quant Market Intelligence",
+  "description": "Institutional-grade AI quantitative market intelligence, candlestick and chart pattern detection, risk calculations, strategy lab, and trading mentor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
