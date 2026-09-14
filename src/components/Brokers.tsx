@@ -379,7 +379,9 @@ export default function BrokersView({
         description: "Global Tier-1 regulated Forex and Metals broker. Features direct deep liquidity routing and raw spreads starting from 0.0 pips.",
         perk: "Get a free $100 trading credit and lifetime free Quant Intel premium tier connection.", 
         leverage: "Up to 1:500", 
-        regulator: "FCA, ASIC, DFSA regulated" 
+        regulator: "FCA, ASIC, DFSA regulated",
+        referralUrl: "https://www.icmarkets.com/?camp=QUANT_VIP",
+        ibTag: "IB-98421"
       },
       { 
         id: "apex", 
@@ -387,7 +389,9 @@ export default function BrokersView({
         description: "The primary liquidity bridge for professional cryptocurrency and cross-border token trading. Offers deep orderbooks on BTC, ETH, and SOL.",
         perk: "Enjoy 15% reduction in trading commissions and zero dynamic slippage guarantees.", 
         leverage: "Up to 1:100", 
-        regulator: "Registered Virtual Assets Regulatory Authority" 
+        regulator: "Registered Virtual Assets Regulatory Authority",
+        referralUrl: "https://accounts.binance.com/register?ref=QUANTINTEL",
+        ibTag: "REF-BINANCE-88"
       },
       { 
         id: "vanguard", 
@@ -395,7 +399,9 @@ export default function BrokersView({
         description: "High-performance Direct Market Access (DMA) broker for US equities, global indices, and futures execution portfolios.",
         perk: "Access 24/7 extended pre-market trading and zero-interest overnight margin holding.", 
         leverage: "Up to 1:50", 
-        regulator: "SEC, FINRA, SIPC members" 
+        regulator: "SEC, FINRA, SIPC members",
+        referralUrl: "https://www.oanda.com/register/?partner=QUANT_INTEL",
+        ibTag: "IB-OANDA-402"
       }
     ];
   });
@@ -414,6 +420,8 @@ export default function BrokersView({
   const [partnerBrokerPerk, setPartnerBrokerPerk] = useState("");
   const [partnerBrokerLeverage, setPartnerBrokerLeverage] = useState("");
   const [partnerBrokerRegulator, setPartnerBrokerRegulator] = useState("");
+  const [partnerBrokerReferralUrl, setPartnerBrokerReferralUrl] = useState("");
+  const [partnerBrokerIbTag, setPartnerBrokerIbTag] = useState("");
 
   const [newPartnerName, setNewPartnerName] = useState("");
   const [newPartnerEmail, setNewPartnerEmail] = useState("");
@@ -645,8 +653,9 @@ export default function BrokersView({
       const generatedAccountNo = `AIQ-${Math.floor(100000 + Math.random() * 900000)}`;
       const generatedToken = `tok_live_quant_${Math.random().toString(36).substring(2, 15)}`;
       const stpBrokerObj = stpBrokers.find(b => b.id === registerBrokerId);
-      const brokerName = stpBrokerObj ? stpBrokerObj.name : (registerBrokerId === "alpha" ? "Alpha Institutional Brokers" : registerBrokerId === "apex" ? "Apex Liquidity Pools" : "Vanguard Direct Markets");
-      const pipsDiscount = stpBrokerObj ? `STP spread +${stpBrokerObj.markupPips} pips` : (registerBrokerId === "alpha" ? "0.4 pips average raw spread discount" : "15% lower transaction commissions");
+      const partnerBrokerObj = partneredBrokers.find(b => b.id === registerBrokerId);
+      const brokerName = stpBrokerObj ? stpBrokerObj.name : (partnerBrokerObj ? partnerBrokerObj.name : (registerBrokerId === "alpha" ? "Alpha Institutional Brokers" : registerBrokerId === "apex" ? "Apex Liquidity Pools" : "Vanguard Direct Markets"));
+      const pipsDiscount = stpBrokerObj ? `STP spread +${stpBrokerObj.markupPips} pips` : (partnerBrokerObj?.perk || (registerBrokerId === "alpha" ? "0.4 pips average raw spread discount" : "15% lower transaction commissions"));
       
       const result = {
         brokerId: registerBrokerId,
@@ -656,7 +665,9 @@ export default function BrokersView({
         leverage: regLeverage,
         accountType: regAccountType,
         depositInstructions: "Direct instant bank wire or stablecoin address: 0x82...f93e",
-        pipsDiscount
+        pipsDiscount,
+        referralUrl: partnerBrokerObj?.referralUrl,
+        ibTag: partnerBrokerObj?.ibTag
       };
       setRegistrationSuccess(result);
       setRegistering(false);
@@ -1846,9 +1857,30 @@ export default function BrokersView({
                                 <p className="text-[9.5px] text-blue-400 font-bold">Benefit: {pb.perk}</p>
                               )}
                               <p className="text-[9.5px] text-slate-500">Max Leverage: {pb.leverage}</p>
+                              <div className="mt-1.5 p-1.5 bg-slate-900 border border-slate-800/80 rounded flex items-center gap-2 text-[9.5px]">
+                                <span className="text-slate-500 shrink-0 font-bold">Your IB Link:</span>
+                                <span className="text-emerald-400 font-mono truncate max-w-[280px]">{pb.referralUrl || "No link set yet"}</span>
+                                {pb.ibTag && (
+                                  <span className="ml-auto text-[8px] bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded border border-emerald-500/20 shrink-0">
+                                    {pb.ibTag}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0">
+                              {pb.referralUrl && (
+                                <a
+                                  href={pb.referralUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 text-slate-400 hover:text-emerald-400 bg-slate-900 border border-slate-800 rounded transition-all flex items-center gap-1 text-[10px] px-2 font-bold"
+                                  title="Test Referral Link in New Tab"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span>Test Link</span>
+                                </a>
+                              )}
                               <button
                                 onClick={() => {
                                   setEditingPartnerBrokerId(pb.id);
@@ -1857,9 +1889,11 @@ export default function BrokersView({
                                   setPartnerBrokerPerk(pb.perk);
                                   setPartnerBrokerLeverage(pb.leverage);
                                   setPartnerBrokerRegulator(pb.regulator);
+                                  setPartnerBrokerReferralUrl(pb.referralUrl || "");
+                                  setPartnerBrokerIbTag(pb.ibTag || "");
                                 }}
                                 className="p-1 text-slate-500 hover:text-blue-400 bg-slate-900 border border-slate-800 rounded transition-all cursor-pointer"
-                                title="Edit Listing"
+                                title="Edit Listing & Referral Link"
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
@@ -1914,13 +1948,15 @@ export default function BrokersView({
                                   description: partnerBrokerDescription,
                                   perk: partnerBrokerPerk,
                                   leverage: partnerBrokerLeverage,
-                                  regulator: partnerBrokerRegulator
+                                  regulator: partnerBrokerRegulator,
+                                  referralUrl: partnerBrokerReferralUrl,
+                                  ibTag: partnerBrokerIbTag
                                 };
                               }
                               return b;
                             }));
                             setEditingPartnerBrokerId(null);
-                            alert("Partner broker configuration updated successfully!");
+                            alert("Partner broker configuration and IB referral link updated successfully!");
                           } else {
                             // Create
                             const id = partnerBrokerName.toLowerCase().replace(/[^a-z0-9]/g, "-") || `partner-${Date.now()}`;
@@ -1930,10 +1966,12 @@ export default function BrokersView({
                               description: partnerBrokerDescription,
                               perk: partnerBrokerPerk,
                               leverage: partnerBrokerLeverage,
-                              regulator: partnerBrokerRegulator
+                              regulator: partnerBrokerRegulator,
+                              referralUrl: partnerBrokerReferralUrl,
+                              ibTag: partnerBrokerIbTag
                             };
                             setPartneredBrokers(prev => [...prev, newPb]);
-                            alert("New partnered broker listing deployed successfully!");
+                            alert("New partnered broker listing deployed successfully with your IB referral link!");
                           }
 
                           // Reset fields
@@ -1942,6 +1980,8 @@ export default function BrokersView({
                           setPartnerBrokerPerk("");
                           setPartnerBrokerLeverage("");
                           setPartnerBrokerRegulator("");
+                          setPartnerBrokerReferralUrl("");
+                          setPartnerBrokerIbTag("");
                         }}
                         className="space-y-3 text-xs"
                       >
@@ -1999,6 +2039,36 @@ export default function BrokersView({
                               value={partnerBrokerRegulator}
                               onChange={(e) => setPartnerBrokerRegulator(e.target.value)}
                               className="w-full bg-slate-950 border border-slate-850 p-2.5 rounded-lg text-white"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Direct Affiliate / IB Partner Referral Link Input */}
+                        <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-lg space-y-2">
+                          <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+                            <Link2 className="h-3.5 w-3.5" />
+                            <span>Your Affiliate / Introducing Broker (IB) Link:</span>
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-1 text-[10px]">Direct Broker Signup Referral URL:</label>
+                            <input 
+                              type="url" 
+                              placeholder="https://www.broker.com/register?camp=YOUR_IB_CODE"
+                              value={partnerBrokerReferralUrl}
+                              onChange={(e) => setPartnerBrokerReferralUrl(e.target.value)}
+                              className="w-full bg-slate-950 border border-emerald-900/60 p-2 rounded-lg text-emerald-300 font-mono text-xs focus:ring-1 focus:ring-emerald-500"
+                              required
+                            />
+                            <p className="text-[9px] text-slate-400 mt-1">Users clicking "Open Account" will be tracked directly under this link for your commission rebates.</p>
+                          </div>
+                          <div>
+                            <label className="text-slate-400 block mb-1 text-[10px]">IB Campaign / Tracking Tag:</label>
+                            <input 
+                              type="text" 
+                              placeholder="e.g. IB-98421 or QUANT_VIP"
+                              value={partnerBrokerIbTag}
+                              onChange={(e) => setPartnerBrokerIbTag(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-850 p-2 rounded-lg text-slate-200 font-mono text-xs"
                             />
                           </div>
                         </div>
@@ -2080,9 +2150,24 @@ export default function BrokersView({
 
                   <div className="flex justify-between items-center text-[10px] text-slate-500 font-mono mt-3">
                     <span>Leverage: <strong className="text-slate-300">{partner.leverage}</strong></span>
-                    <span className="text-blue-400 font-bold flex items-center gap-0.5">
-                      Select for Signup <ArrowRight className="h-3 w-3" />
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {partner.referralUrl && (
+                        <a
+                          href={partner.referralUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="px-2 py-1 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-400 border border-emerald-700/50 rounded font-bold flex items-center gap-1 transition-all"
+                          title="Open official broker registration portal with platform partner benefits"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          <span>Direct Broker Portal</span>
+                        </a>
+                      )}
+                      <span className="text-blue-400 font-bold flex items-center gap-0.5">
+                        Select for Signup <ArrowRight className="h-3 w-3" />
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2212,28 +2297,41 @@ export default function BrokersView({
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => {
-                      // Automatically update the connected list
-                      setConnectedBrokers(prev => prev.map(b => {
-                        if (b.id === registrationSuccess.brokerId) {
-                          return {
-                            ...b,
-                            connected: true,
-                            accountNo: registrationSuccess.accountNo,
-                            balance: 100.00, // starting perk balance
-                            equity: 100.00,
-                            status: "active"
-                          };
-                        }
-                        return b;
-                      }));
-                      setActiveTab("connect");
-                    }}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-center cursor-pointer transition-all block text-xs"
-                  >
-                    Auto-Link to Trading Suite Now
-                  </button>
+                  <div className="flex gap-2">
+                    {registrationSuccess.referralUrl && (
+                      <a
+                        href={registrationSuccess.referralUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-1/2 py-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-lg text-center cursor-pointer transition-all flex items-center justify-center gap-1 text-xs"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        <span>Visit Partner Portal</span>
+                      </a>
+                    )}
+                    <button
+                      onClick={() => {
+                        // Automatically update the connected list
+                        setConnectedBrokers(prev => prev.map(b => {
+                          if (b.id === registrationSuccess.brokerId) {
+                            return {
+                              ...b,
+                              connected: true,
+                              accountNo: registrationSuccess.accountNo,
+                              balance: 100.00, // starting perk balance
+                              equity: 100.00,
+                              status: "active"
+                            };
+                          }
+                          return b;
+                        }));
+                        setActiveTab("connect");
+                      }}
+                      className={`${registrationSuccess.referralUrl ? "w-1/2" : "w-full"} py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-center cursor-pointer transition-all block text-xs`}
+                    >
+                      Auto-Link to Suite
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
