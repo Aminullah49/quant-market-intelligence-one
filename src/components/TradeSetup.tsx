@@ -2,10 +2,10 @@ import React, { useState, useEffect } from "react";
 import { MarketAsset, TradeSetupPlan } from "../types";
 import AdBanner from "./AdBanner";
 import { 
-  CheckCircle, ArrowUpRight, ShieldAlert, Sparkles, AlertCircle, 
+  CheckCircle, ArrowUpRight, ShieldAlert, Sparkles, AlertCircle, AlertTriangle,
   Play, TrendingUp, TrendingDown, RefreshCw, Clock, Hourglass,
   Coins, Calculator, DollarSign, TrendingUp as ArrowUp, TrendingDown as ArrowDown,
-  Zap, Check, Loader2, ArrowRight
+  Zap, Check, Loader2, ArrowRight, Radio, Globe, Shield, Lock, Copy
 } from "lucide-react";
 import { 
   SUPPORTED_CURRENCIES, 
@@ -16,6 +16,20 @@ import {
   calculateTradePnL,
   CurrencyConfig 
 } from "../utils/currencyAndPips";
+import { getAssetMacroImpact, getNewsForAsset, reconcileTechnicalAndFundamental } from "../utils/marketNews";
+import { 
+  getActivePrimaryBroker, 
+  executeDirectBrokerOrder, 
+  getCurrentUser,
+  UnifiedBroker,
+  isPropFirmBroker,
+  getPropFirmMetrics,
+  calculatePropFirmSafeLotSize,
+  validatePropFirmTradeRisk,
+  executeMasterToSlaveTradeCopy,
+  getUniversalCopierConfig,
+  getConnectedBrokersList
+} from "../utils/brokerSync";
 
 interface TradeSetupProps {
   selectedAsset: MarketAsset;
@@ -27,6 +41,7 @@ interface TradeSetupProps {
   aiScanMode?: 'quant' | 'gemini';
   onAiScanModeChange?: (mode: 'quant' | 'gemini') => void;
   onNavigateToSection?: (section: any) => void;
+  currentUser?: any;
 }
 
 export default function TradeSetup({ 
@@ -38,14 +53,25 @@ export default function TradeSetup({
   isGeminiCooldown,
   aiScanMode = 'quant',
   onAiScanModeChange,
-  onNavigateToSection
+  onNavigateToSection,
+  currentUser
 }: TradeSetupProps) {
+  const effectiveUser = currentUser || getCurrentUser();
+  const userId = effectiveUser?.id || "guest_trader";
+
   const [directionBias, setDirectionBias] = useState<'BUY' | 'SELL'>(() => {
     return selectedAsset.bullishProb >= selectedAsset.bearishProb ? 'BUY' : 'SELL';
   });
 
   // Direct order placement state
   const [isPlacingDirectOrder, setIsPlacingDirectOrder] = useState(false);
+  const [activeBroker, setActiveBroker] = useState<UnifiedBroker>(() => getActivePrimaryBroker(userId));
+  const isPropAccount = isPropFirmBroker(activeBroker);
+  const [propMetrics, setPropMetrics] = useState(() => getPropFirmMetrics(activeBroker, userId));
+  const [propRiskError, setPropRiskError] = useState<string | null>(null);
+  const [copierEnabled, setCopierEnabled] = useState<boolean>(() => getUniversalCopierConfig(userId).enabled);
+  const [copierReceiptSummary, setCopierReceiptSummary] = useState<string | null>(null);
+
   const [directOrderReceipt, setDirectOrderReceipt] = useState<{
     id: string;
     market: string;
@@ -57,15 +83,40 @@ export default function TradeSetup({
     broker: string;
   } | null>(null);
 
-  // Quant Market Direction Bias calculations
-  const isQuantBullish = selectedAsset.bullishProb >= selectedAsset.bearishProb;
-  const quantRecommendedDirection: 'BUY' | 'SELL' = isQuantBullish ? 'BUY' : 'SELL';
-  const quantProbPct = Math.round((isQuantBullish ? selectedAsset.bullishProb : selectedAsset.bearishProb) * 100);
-
-  // Sync direction bias with selected asset live market signal
   useEffect(() => {
-    setDirectionBias(selectedAsset.bullishProb >= selectedAsset.bearishProb ? 'BUY' : 'SELL');
-  }, [selectedAsset.symbol, selectedAsset.bullishProb, selectedAsset.bearishProb]);
+    const handleSync = () => {
+      const broker = getActivePrimaryBroker(userId);
+      setActiveBroker(broker);
+      setPropMetrics(getPropFirmMetrics(broker, userId));
+    };
+    handleSync();
+    window.addEventListener("primary_broker_changed", handleSync);
+    window.addEventListener("broker_connected", handleSync);
+    window.addEventListener("prop_firm_metrics_updated", handleSync);
+    window.addEventListener("storage", handleSync);
+    return () => {
+      window.removeEventListener("primary_broker_changed", handleSync);
+      window.removeEventListener("broker_connected", handleSync);
+      window.removeEventListener("prop_firm_metrics_updated", handleSync);
+      window.removeEventListener("storage", handleSync);
+    };
+  }, [userId]);
+
+  // Quant Market Direction Bias calculations with Fundamental News Reconciliation
+  const reconciledVerdict = reconcileTechnicalAndFundamental(selectedAsset);
+  const isQuantBullish = reconciledVerdict.finalAction === "BUY";
+  const isQuantNeutral = reconciledVerdict.finalAction === "WAIT";
+  const quantRecommendedDirection: 'BUY' | 'SELL' = isQuantBullish ? 'BUY' : 'SELL';
+  const quantProbPct = reconciledVerdict.reconciledScore;
+
+  // Sync direction bias with selected asset live reconciled market signal
+  useEffect(() => {
+    if (reconciledVerdict.finalAction === "BUY") {
+      setDirectionBias('BUY');
+    } else if (reconciledVerdict.finalAction === "SELL") {
+      setDirectionBias('SELL');
+    }
+  }, [selectedAsset.symbol, selectedAsset.bullishProb, selectedAsset.bearishProb, reconciledVerdict.finalAction]);
 
   // Currency & Position Sizing State
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyConfig>(getStoredCurrency());
@@ -134,7 +185,16 @@ export default function TradeSetup({
     accountBalanceUSD
   }) : null;
 
+  const propSafeLot = calculatePropFirmSafeLotSize(
+    selectedAsset.symbol,
+    entryVal,
+    tradeSetup ? tradeSetup.stopLoss : (directionBias === "BUY" ? entryVal * 0.995 : entryVal * 1.005),
+    propMetrics.initialBalance,
+    propMetrics.maxRiskPerTradePct
+  );
+
   const handleExecuteDirectTrade = (customSide?: "BUY" | "SELL") => {
+    setPropRiskError(null);
     setIsPlacingDirectOrder(true);
     setDirectOrderReceipt(null);
 
@@ -142,70 +202,85 @@ export default function TradeSetup({
     const price = entryVal;
     const sl = tradeSetup ? tradeSetup.stopLoss : (side === "BUY" ? price * 0.995 : price * 1.005);
     const tp = tradeSetup ? tradeSetup.takeProfit1 : (side === "BUY" ? price * 1.01 : price * 0.99);
-    const ticketId = `STP-SETUP-${Math.floor(100000 + Math.random() * 900000)}`;
-    const brokerName = "AI QUANT PRIME DESK";
+
+    // STRICT PROP FIRM VALIDATION
+    if (isPropAccount) {
+      const riskCheck = validatePropFirmTradeRisk(
+        activeBroker,
+        lotSize,
+        selectedAsset.symbol,
+        price,
+        sl,
+        userId
+      );
+      if (!riskCheck.allowed) {
+        setIsPlacingDirectOrder(false);
+        setPropRiskError(riskCheck.reason || "Execution blocked by strict Prop Firm Challenge Shield.");
+        return;
+      }
+    }
 
     setTimeout(() => {
       setIsPlacingDirectOrder(false);
 
-      // Save to position store for broker & paper trading
       try {
-        const positionsRaw = localStorage.getItem("paper_trading_positions_v1");
-        const openPositions = positionsRaw ? JSON.parse(positionsRaw) : [];
-        const newPosition = {
-          id: `pos_${Date.now()}`,
+        // Execute directly to the user's connected broker
+        const receipt = executeDirectBrokerOrder({
           symbol: selectedAsset.symbol,
-          type: side,
-          entryPrice: price,
-          currentPrice: price,
-          size: lotSize,
-          leverage: 100,
+          side,
+          price,
+          lotSize,
           stopLoss: sl,
           takeProfit: tp,
-          pnl: 0,
-          timestamp: new Date().toISOString(),
-          status: "OPEN",
-          brokerId: "quantintel-stp",
-          notes: `Setup Plan Order (${tradeSetup?.tradeGrade || 'A+'} Grade) Ticket #${ticketId}`
-        };
-        localStorage.setItem("paper_trading_positions_v1", JSON.stringify([newPosition, ...openPositions]));
-      } catch (e) {
-        console.error("Setup direct order position sync failed:", e);
-      }
+          category: selectedAsset.category,
+          sourceModule: isPropAccount ? `FundedNext Prop Desk (${tradeSetup?.tradeGrade || 'A+'} Grade)` : `Trade Setup Matrix (${tradeSetup?.tradeGrade || 'A+'} Grade)`,
+          userId
+        }, userId);
 
-      // Sync to journal entries
-      try {
-        const journalRaw = localStorage.getItem("ai_quant_journal_entries");
-        const existingEntries = journalRaw ? JSON.parse(journalRaw) : [];
-        const newEntry = {
-          id: `j_${Date.now()}`,
-          date: new Date().toISOString().split("T")[0],
+        setDirectOrderReceipt({
+          id: receipt.ticketId,
           market: selectedAsset.symbol,
           direction: side,
-          entryPrice: price,
-          exitPrice: tp,
-          outcome: "WIN",
-          profit: tp1Metrics ? tp1Metrics.pnlCurrency : 150,
-          emotion: "Disciplined",
-          mistake: "None",
-          notes: `Executed via Trade Setup Matrix. Grade: ${tradeSetup?.tradeGrade || 'A+'}. Open: $${price}, SL: $${sl}, TP: $${tp}. Ticket #${ticketId}.`
-        };
-        localStorage.setItem("ai_quant_journal_entries", JSON.stringify([newEntry, ...existingEntries]));
-      } catch (e) {
-        console.error("Journal sync failed:", e);
-      }
+          price: receipt.price,
+          lots: receipt.lotSize,
+          sl: receipt.stopLoss,
+          tp1: receipt.takeProfit,
+          broker: `${receipt.brokerName} (${receipt.accountNo})`
+        });
+        setPropRiskError(null);
 
-      setDirectOrderReceipt({
-        id: ticketId,
-        market: selectedAsset.symbol,
-        direction: side,
-        price,
-        lots: lotSize,
-        sl,
-        tp1: tp,
-        broker: brokerName
-      });
-    }, 1400);
+        // Universal Master-to-Slave Copier Mirroring across all connected brokers
+        if (copierEnabled) {
+          const otherSlaves = getConnectedBrokersList(userId)
+            .filter(b => b.connected && b.id !== activeBroker.id)
+            .map(b => b.id);
+
+          if (otherSlaves.length > 0) {
+            const copyRes = executeMasterToSlaveTradeCopy({
+              symbol: selectedAsset.symbol,
+              side,
+              price,
+              lotSize,
+              stopLoss: sl,
+              takeProfit: tp,
+              category: selectedAsset.category,
+              sourceModule: `Setup Matrix (${activeBroker.name}) Copier`,
+              userId
+            }, activeBroker, otherSlaves, userId);
+
+            if (copyRes.copiedCount > 0) {
+              const names = copyRes.results
+                .filter(r => r.success)
+                .map(r => `${r.brokerName} (${r.lots} Lots)`)
+                .join(", ");
+              setCopierReceiptSummary(`⚡ Master Copier mirrored order to ${copyRes.copiedCount} account(s): ${names} (1% risk cap).`);
+            }
+          }
+        }
+      } catch (err: any) {
+        setPropRiskError(err?.message || "Execution blocked by Prop Firm Challenge Shield.");
+      }
+    }, 1200);
   };
 
   return (
@@ -215,39 +290,61 @@ export default function TradeSetup({
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         
         {/* Prominent AI Market Direction Indicator */}
-        <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-mono ${
+        <div className={`p-4 rounded-xl border flex flex-col gap-3 font-mono ${
           isQuantBullish
             ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-            : "bg-rose-950/40 border-rose-500/40 text-rose-300"
+            : isQuantNeutral
+              ? "bg-amber-950/20 border-amber-500/40 text-amber-300"
+              : "bg-rose-950/40 border-rose-500/40 text-rose-300"
         }`}>
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg font-black shrink-0 ${
-              isQuantBullish ? "bg-emerald-500 text-slate-950" : "bg-rose-500 text-white"
-            }`}>
-              {isQuantBullish ? <TrendingUp className="h-5 w-5 stroke-[3]" /> : <TrendingDown className="h-5 w-5 stroke-[3]" />}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">AI QUANT MARKET DIRECTION</span>
-                <span className={`px-2 py-0.5 text-[10px] font-black rounded uppercase ${
-                  isQuantBullish ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"
-                }`}>
-                  {quantRecommendedDirection === "BUY" ? "🟢 BUY SIGNAL" : "🔴 SELL SIGNAL"}
-                </span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-lg font-black shrink-0 ${
+                isQuantBullish ? "bg-emerald-500 text-slate-950" : isQuantNeutral ? "bg-amber-500 text-slate-950" : "bg-rose-500 text-white"
+              }`}>
+                {isQuantBullish ? <TrendingUp className="h-5 w-5 stroke-[3]" /> : isQuantNeutral ? <Clock className="h-5 w-5 stroke-[3]" /> : <TrendingDown className="h-5 w-5 stroke-[3]" />}
               </div>
-              <div className="text-sm font-black text-white mt-0.5">
-                Market is currently a <span className={isQuantBullish ? "text-emerald-400" : "text-rose-400"}>{quantRecommendedDirection}</span> setup ({quantProbPct}% Confidence)
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">RECONCILED QUANT DIRECTION</span>
+                  <span className={`px-2 py-0.5 text-[10px] font-black rounded uppercase ${
+                    isQuantBullish ? "bg-emerald-500/20 text-emerald-300" : isQuantNeutral ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"
+                  }`}>
+                    {reconciledVerdict.actionBadge}
+                  </span>
+                </div>
+                <div className="text-sm font-black text-white mt-0.5">
+                  Real Market Verdict: <span className={isQuantBullish ? "text-emerald-400" : isQuantNeutral ? "text-amber-400" : "text-rose-400"}>
+                    {isQuantNeutral ? "WAIT / STAND ASIDE (50/50 NEUTRAL)" : quantRecommendedDirection}
+                  </span> setup ({quantProbPct}% Score)
+                </div>
               </div>
             </div>
+
+            {!isQuantNeutral && directionBias !== quantRecommendedDirection && (
+              <button
+                onClick={() => setDirectionBias(quantRecommendedDirection)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg border border-slate-700 transition-all cursor-pointer shrink-0"
+              >
+                Align Setup to {quantRecommendedDirection}
+              </button>
+            )}
           </div>
 
-          {directionBias !== quantRecommendedDirection && (
-            <button
-              onClick={() => setDirectionBias(quantRecommendedDirection)}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg border border-slate-700 transition-all cursor-pointer shrink-0"
-            >
-              Align Setup to {quantRecommendedDirection}
-            </button>
+          {/* Divergence Notification Note if Technical & Fundamental conflict */}
+          {(reconciledVerdict.confluenceType.includes("DIVERGENCE") || isQuantNeutral) && (
+            <div className="p-3 bg-slate-950/80 rounded-lg border border-amber-500/30 text-xs text-slate-300 space-y-1">
+              <div className="flex items-center gap-2 font-bold text-amber-400 text-[11px] uppercase">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                <span>{isQuantNeutral ? "Market in 50/50 Neutral Equilibrium:" : "Fundamental vs Technical Divergence Detected:"}</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-slate-300">
+                {reconciledVerdict.divergenceResolutionNote}
+              </p>
+              <div className="text-[10px] text-slate-400 pt-0.5">
+                Technical Signal: <strong className={reconciledVerdict.technicalBias === "BUY" ? "text-emerald-400" : reconciledVerdict.technicalBias === "SELL" ? "text-rose-400" : "text-amber-400"}>{reconciledVerdict.technicalBias} ({reconciledVerdict.technicalScore}%)</strong> • Macro News Catalyst: <strong className={reconciledVerdict.fundamentalBias === "BULLISH" ? "text-emerald-400" : reconciledVerdict.fundamentalBias === "BEARISH" ? "text-rose-400" : "text-amber-400"}>{reconciledVerdict.fundamentalBias} ({reconciledVerdict.fundamentalScore}%)</strong> • Action: <strong className="text-white">{reconciledVerdict.finalAction}</strong>
+              </div>
+            </div>
           )}
         </div>
 
@@ -528,16 +625,22 @@ export default function TradeSetup({
             {/* Direct Order Execution Action Card */}
             <div className="bg-slate-900 border border-emerald-500/30 rounded-xl p-5 space-y-4 shadow-lg">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg">
                     <Zap className="h-4 w-4 fill-emerald-400" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                      Direct STP Live Order Placement
-                    </h4>
-                    <span className="text-[10px] text-slate-400 font-sans block">
-                      Route this verified setup ({tradeSetup.direction} {lotSize} Lots @ ${entryVal}) straight to broker
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                        Direct STP Live Order Placement
+                      </h4>
+                      <span className="text-[9px] bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                        Auto-Routing: {activeBroker.name} ({activeBroker.accountNo || "Direct"})
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
+                      Executing this setup will automatically route direct to your connected broker <strong>{activeBroker.name}</strong>
                     </span>
                   </div>
                 </div>
@@ -556,8 +659,101 @@ export default function TradeSetup({
                 </div>
               </div>
 
+              {/* STRICT PROP FIRM CHALLENGE SHIELD (STRICTLY FOR PROP FIRM USERS) */}
+              {isPropAccount && (
+                <div className="p-3 bg-amber-950/30 border border-amber-500/40 rounded-xl space-y-2 text-xs font-mono">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                      <Shield className="h-4 w-4 text-amber-400 fill-amber-400/20" />
+                      <span className="uppercase tracking-wider">STRICT PROP FIRM SHIELD ACTIVE</span>
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+                        {propMetrics.firmName} ({propMetrics.accountModel})
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      Phase: <strong className="text-white">{propMetrics.phase}</strong> · Target: <strong className="text-emerald-400">+{propMetrics.currentProfitPct}% / {propMetrics.profitTargetPct}%</strong>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800 text-[10.5px]">
+                    <div>
+                      <span className="text-slate-500 text-[9.5px] block">Daily Drawdown</span>
+                      <span className={`font-bold ${propMetrics.currentDailyLossPct >= 4.0 ? "text-rose-400 animate-pulse" : "text-emerald-400"}`}>
+                        {propMetrics.currentDailyLossPct}% / 5.0% Max
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[9.5px] block">Circuit Breaker</span>
+                      <span className="text-amber-400 font-bold">4.0% Lock Threshold</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[9.5px] block">1.0% Risk Limit</span>
+                      <span className="text-white font-bold">${((propMetrics.initialBalance * 0.01)).toLocaleString()} Max</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[9.5px] block">Max Safe Size</span>
+                      <span className="text-cyan-400 font-bold">{propSafeLot} Lots</span>
+                    </div>
+                  </div>
+
+                  {lotSize > propSafeLot && (
+                    <div className="pt-1 flex items-center justify-between gap-2 text-[10px] text-amber-300 bg-amber-950/60 p-2 rounded-lg border border-amber-500/30">
+                      <span>⚠️ Selected {lotSize} lots exceeds strict 1.0% risk limit ({propSafeLot} lots) for this stop-loss.</span>
+                      <button
+                        onClick={() => setLotSize(propSafeLot)}
+                        className="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded cursor-pointer shrink-0"
+                      >
+                        Auto-Scale to {propSafeLot} Lots
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* PROP FIRM RISK BLOCK NOTIFICATION */}
+              {propRiskError && (
+                <div className="p-3 bg-rose-950/80 border border-rose-500/70 text-rose-200 text-xs font-mono rounded-xl flex items-start gap-2 animate-in fade-in">
+                  <ShieldAlert className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <span className="font-black text-rose-300 block uppercase text-[10px]">PROP FIRM RISK BREACH PREVENTED</span>
+                    <p className="text-[11px] leading-relaxed mt-0.5 text-slate-200">{propRiskError}</p>
+                  </div>
+                  <button onClick={() => setPropRiskError(null)} className="text-slate-400 hover:text-white cursor-pointer">✕</button>
+                </div>
+              )}
+
+              {/* Universal Master-to-Slave Copier Strip */}
+              <div className="p-3 bg-slate-950/80 border border-blue-500/30 rounded-xl flex items-center justify-between text-xs font-mono">
+                <label className="flex items-center gap-2 text-slate-200 cursor-pointer font-bold">
+                  <input
+                    type="checkbox"
+                    checked={copierEnabled}
+                    onChange={(e) => setCopierEnabled(e.target.checked)}
+                    className="rounded border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1.5 text-blue-300">
+                    <Copy className="h-4 w-4 text-blue-400" />
+                    <span>Mirror execution across all other connected accounts (Universal Copier)</span>
+                  </span>
+                </label>
+                <span className="text-[10px] bg-blue-500/10 text-blue-300 px-2 py-0.5 rounded border border-blue-500/20 font-bold">
+                  EQUITY-SCALED · 1% RISK CAP
+                </span>
+              </div>
+
               {/* Order Execution Buttons */}
-              <div className="flex flex-col sm:flex-row items-center gap-3">
+              {isPropAccount && propMetrics.circuitBreakerTriggered ? (
+                <div className="p-3.5 bg-rose-950/80 border border-rose-500/60 rounded-xl text-center space-y-1 font-mono">
+                  <div className="flex items-center justify-center gap-1.5 text-rose-400 font-black text-xs uppercase">
+                    <Lock className="h-4 w-4 text-rose-400" />
+                    <span>PROP CIRCUIT BREAKER LOCKED (4.0% DAILY DRAWDOWN REACHED)</span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-300">
+                    Trading is halted for today to protect your FundedNext account from breaching the 5.0% hard drawdown rule.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center gap-3">
                 <button
                   onClick={() => handleExecuteDirectTrade(tradeSetup.direction === "SELL" ? "SELL" : "BUY")}
                   disabled={isPlacingDirectOrder}
@@ -589,6 +785,7 @@ export default function TradeSetup({
                   Invert Side ({tradeSetup.direction === "BUY" ? "SELL" : "BUY"})
                 </button>
               </div>
+              )}
 
               {/* Live Order Filled Receipt Docket */}
               {directOrderReceipt && (
@@ -622,6 +819,13 @@ export default function TradeSetup({
                     </div>
                   </div>
 
+                  {copierReceiptSummary && (
+                    <div className="p-2 bg-blue-950/70 border border-blue-500/40 rounded-lg text-blue-200 text-[10.5px] flex items-center gap-2">
+                      <Copy className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                      <span>{copierReceiptSummary}</span>
+                    </div>
+                  )}
+
                   {onNavigateToSection && (
                     <div className="pt-2 border-t border-slate-900 flex justify-end">
                       <button
@@ -651,6 +855,60 @@ export default function TradeSetup({
           {/* Quick Metrics & Risk Check */}
           <div className="space-y-6">
             
+            {/* Auto-Merged Live Macro Catalyst & News Impact Radar */}
+            <div className="bg-slate-900 border border-cyan-500/30 rounded-xl p-5 space-y-3.5 shadow-lg">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div className="flex items-center gap-2 text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider">
+                  <Radio className="h-4 w-4 text-cyan-400 animate-pulse" />
+                  <span>Auto-Merged News & Macro Radar</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-black uppercase ${
+                  getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "CRITICAL" ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" :
+                  getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "ELEVATED" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" :
+                  "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                }`}>
+                  {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk} MACRO SHOCK RISK
+                </span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-850 space-y-2 text-[11px] font-mono">
+                <div>
+                  <span className="text-slate-500 text-[9.5px] uppercase block">Primary Geopolitical / Summit Event:</span>
+                  <span className="text-white font-bold leading-snug block mt-0.5">
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}
+                  </span>
+                </div>
+                
+                <div className="pt-2 border-t border-slate-900">
+                  <span className="text-amber-400 font-bold block text-[10px] uppercase">Automated Protection Buffer:</span>
+                  <p className="text-slate-300 leading-relaxed text-[11px] mt-0.5">
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).volatilityBufferRecommendation}
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-900 flex justify-between items-center text-[10px]">
+                  <span className="text-slate-500">News Sentiment Bias:</span>
+                  <span className={`font-black ${
+                    getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).sentiment === "BULLISH" ? "text-emerald-400" :
+                    getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).sentiment === "BEARISH" ? "text-rose-400" : "text-amber-400"
+                  }`}>
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).sentiment}
+                  </span>
+                </div>
+              </div>
+
+              {onNavigateToSection && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToSection('news')}
+                  className="w-full py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded text-[10.5px] font-bold font-mono transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Globe className="h-3 w-3" />
+                  View Related Live Macro News Wires <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
             {analysisData && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
                 <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-blue-400 uppercase tracking-wider">

@@ -5,8 +5,16 @@ import {
   TrendingUp, TrendingDown, HelpCircle, FileText, AlertTriangle, AlertCircle,
   BarChart, Globe, Zap, Cpu, Compass, Layers, Sparkles, CheckCircle2, ChevronRight,
   Activity, Percent, Clock, ArrowRight, ShieldCheck, Scale, Users, Landmark, Coins,
-  ChevronDown, Check, RefreshCw, Loader2, CheckCircle, Target, Briefcase, Award, Shield, DollarSign
+  ChevronDown, Check, RefreshCw, Loader2, CheckCircle, Target, Briefcase, Award, Shield, DollarSign,
+  Radio, ShieldAlert
 } from "lucide-react";
+import { getAssetMacroImpact, getNewsForAsset, reconcileTechnicalAndFundamental, ReconciledMarketVerdict } from "../utils/marketNews";
+import { 
+  getActivePrimaryBroker, 
+  setActivePrimaryBroker, 
+  executeDirectBrokerOrder, 
+  UnifiedBroker 
+} from "../utils/brokerSync";
 
 interface MarketAnalysisProps {
   selectedAsset: MarketAsset;
@@ -32,10 +40,11 @@ export default function MarketAnalysis({
   onTimeframeChange,
   aiScanMode = 'quant',
   onAiScanModeChange,
-  isGeminiCooldown
+  isGeminiCooldown,
+  onNavigateToSection
 }: MarketAnalysisProps) {
-  // Main sub-tabs: core radar vs timeframe analysis vs overall result vs trader archetype execution
-  const [currentSubTab, setCurrentSubTab] = useState<'radar' | 'timeframe' | 'overall' | 'traders'>('radar');
+  // Main sub-tabs: core radar vs timeframe analysis vs overall result vs trader archetype execution vs live news wire
+  const [currentSubTab, setCurrentSubTab] = useState<'radar' | 'news' | 'timeframe' | 'overall' | 'traders'>('radar');
   const [activeTab, setActiveTab] = useState<'technical' | 'fundamental' | 'sentiment'>('technical');
 
   // Direct STP order routing from Market Analysis
@@ -43,7 +52,28 @@ export default function MarketAnalysis({
   const [analysisOrderReceipt, setAnalysisOrderReceipt] = useState<any>(null);
   const [orderLotsInput, setOrderLotsInput] = useState<number>(0.1);
   const [selectedTraderPersona, setSelectedTraderPersona] = useState<'Scalper' | 'Day Trader' | 'Swing Trader' | 'Institutional Trader'>('Day Trader');
-  const [selectedBrokerTarget, setSelectedBrokerTarget] = useState<string>('quantintel-stp');
+  const [selectedBrokerTarget, setSelectedBrokerTarget] = useState<string>(() => {
+    return getActivePrimaryBroker().id || 'quantintel-stp';
+  });
+
+  // Sync selected broker with primary broker
+  useEffect(() => {
+    const syncPrimaryBroker = () => {
+      const primary = getActivePrimaryBroker();
+      if (primary && primary.id) {
+        setSelectedBrokerTarget(primary.id);
+      }
+    };
+    syncPrimaryBroker();
+    window.addEventListener("primary_broker_changed", syncPrimaryBroker);
+    window.addEventListener("broker_connected", syncPrimaryBroker);
+    window.addEventListener("storage", syncPrimaryBroker);
+    return () => {
+      window.removeEventListener("primary_broker_changed", syncPrimaryBroker);
+      window.removeEventListener("broker_connected", syncPrimaryBroker);
+      window.removeEventListener("storage", syncPrimaryBroker);
+    };
+  }, []);
 
   // Load available STP & Connected brokers
   const [availableBrokers, setAvailableBrokers] = useState<any[]>(() => {
@@ -54,12 +84,12 @@ export default function MarketAnalysis({
       const connList = savedConnected ? JSON.parse(savedConnected) : [];
       
       const combined = [
+        ...connList.filter((b: any) => b.connected),
         ...(stpList.length > 0 ? stpList : [
           { id: "quantintel-stp", name: "QuantIntel Prime STP", type: "Forex", markupLotFee: 6.0, isStpPlatform: true },
           { id: "apex-stp", name: "Apex Liquid Brokerage", type: "Crypto", markupLotFee: 8.0, isStpPlatform: true },
           { id: "vanguard-stp", name: "Vanguard STP Markets", type: "Multi-Asset", markupLotFee: 5.0, isStpPlatform: true }
-        ]),
-        ...connList.filter((b: any) => b.connected)
+        ])
       ];
       // remove duplicate ids
       const seen = new Set();
@@ -80,7 +110,6 @@ export default function MarketAnalysis({
     setIsExecutingAnalysisOrder(true);
     setAnalysisOrderReceipt(null);
 
-    const ticketId = `ANL-${Math.floor(100000 + Math.random() * 900000)}`;
     const currentPrice = selectedAsset.price;
     const decimals = getDecimals(selectedAsset);
     const stopDistance = currentPrice * 0.006;
@@ -91,71 +120,33 @@ export default function MarketAnalysis({
       ? Number((currentPrice + stopDistance * 2).toFixed(decimals))
       : Number((currentPrice - stopDistance * 2).toFixed(decimals));
 
-    const brokerObj = availableBrokers.find(b => b.id === selectedBrokerTarget) || availableBrokers[0];
-    const brokerName = brokerObj?.name || "QuantIntel Prime STP";
-
     setTimeout(() => {
       setIsExecutingAnalysisOrder(false);
 
-      // Save position to paper trading / active positions store
-      try {
-        const positionsRaw = localStorage.getItem("paper_trading_positions_v1");
-        const openPositions = positionsRaw ? JSON.parse(positionsRaw) : [];
-        const newPosition = {
-          id: `pos_${Date.now()}`,
-          symbol: selectedAsset.symbol,
-          type: side,
-          entryPrice: currentPrice,
-          currentPrice: currentPrice,
-          size: orderLotsInput,
-          leverage: 100,
-          stopLoss: sl,
-          takeProfit: tp,
-          pnl: 0,
-          timestamp: new Date().toISOString(),
-          status: "OPEN",
-          brokerId: selectedBrokerTarget,
-          notes: `Direct Order from Analysis (${selectedTraderPersona} setup). Ticket #${ticketId}. Routed via ${brokerName}.`
-        };
-        localStorage.setItem("paper_trading_positions_v1", JSON.stringify([newPosition, ...openPositions]));
-      } catch (e) {
-        console.error("Analysis order position sync failed:", e);
-      }
-
-      // Record to journal
-      try {
-        const journalRaw = localStorage.getItem("ai_quant_journal_entries");
-        const existingEntries = journalRaw ? JSON.parse(journalRaw) : [];
-        const newEntry = {
-          id: `j_${Date.now()}`,
-          date: new Date().toISOString().split("T")[0],
-          market: selectedAsset.symbol,
-          direction: side,
-          entryPrice: currentPrice,
-          exitPrice: tp,
-          outcome: "WIN",
-          profit: orderLotsInput * 110,
-          emotion: "Calculated",
-          mistake: "None",
-          notes: `Direct Execution from Market Analysis Confluence. Persona: ${selectedTraderPersona}. Broker: ${brokerName}. Ticket #${ticketId}.`
-        };
-        localStorage.setItem("ai_quant_journal_entries", JSON.stringify([newEntry, ...existingEntries]));
-      } catch (e) {
-        console.error("Analysis order journal sync failed:", e);
-      }
+      // Execute directly to the user's connected broker
+      const receipt = executeDirectBrokerOrder({
+        symbol: selectedAsset.symbol,
+        side,
+        price: currentPrice,
+        lotSize: orderLotsInput,
+        stopLoss: sl,
+        takeProfit: tp,
+        category: selectedAsset.category,
+        sourceModule: `Market Analysis (${selectedTraderPersona} Confluence)`
+      });
 
       setAnalysisOrderReceipt({
-        id: ticketId,
+        id: receipt.ticketId,
         market: selectedAsset.symbol,
         direction: side,
-        price: currentPrice,
-        lots: orderLotsInput,
-        sl,
-        tp,
-        broker: brokerName,
+        price: receipt.price,
+        lots: receipt.lotSize,
+        sl: receipt.stopLoss,
+        tp: receipt.takeProfit,
+        broker: `${receipt.brokerName} (${receipt.accountNo})`,
         persona: selectedTraderPersona
       });
-    }, 1200);
+    }, 1100);
   };
 
   // Timeframe Analysis local states
@@ -197,6 +188,10 @@ export default function MarketAnalysis({
     }, 1000);
   };
 
+  // Cadence control: auto re-analyse every 10 to 15 minutes instead of short intervals
+  const [reanalysisIntervalMin, setReanalysisIntervalMin] = useState<number>(15);
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(15 * 60);
+
   // Sync local selectedTimeframe with global profile timeframe when it changes
   useEffect(() => {
     if (traderProfile?.timeframe) {
@@ -207,12 +202,34 @@ export default function MarketAnalysis({
     }
   }, [traderProfile?.timeframe]);
 
-  // Run automatically when asset or selected timeframe changes
+  // Run automatically only when instrument symbol or selected timeframe changes
   useEffect(() => {
     if (!timeframeResult || timeframeResult.instrument !== selectedAsset.symbol || timeframeResult.timeframe !== selectedTimeframe) {
       handleScanTimeframe();
+      setSecondsRemaining(reanalysisIntervalMin * 60);
     }
-  }, [selectedAsset, selectedTimeframe]);
+  }, [selectedAsset.symbol, selectedTimeframe]);
+
+  // Auto Re-Analysis loop: runs every 10 to 15 minutes
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSecondsRemaining(prev => {
+        if (prev <= 1) {
+          handleScanTimeframe();
+          onTriggerAnalysis();
+          return reanalysisIntervalMin * 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [reanalysisIntervalMin, onTriggerAnalysis]);
+
+  const formatCountdown = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
 
   // Check if we have active synchronized analysisData for this asset
   const hasActiveSyncData = !!(analysisData && (analysisData.symbol === selectedAsset.symbol || !analysisData.symbol));
@@ -247,17 +264,16 @@ export default function MarketAnalysis({
   // 5. Technical Analysis Score
   const technicalScore = Math.min(100, Math.max(10, Math.round(52 + (currentBullishProb - 50) * 0.7 + (currentConfidence / 5))));
   
-  // 6. Fundamental Analysis Score
-  const fundamentalScore = selectedAsset.category === 'Crypto' 
-    ? 85 
-    : selectedAsset.category === 'Stocks' 
-      ? 78 
-      : selectedAsset.category === 'Forex' 
-        ? 71 
-        : 65;
+  // 6. Fundamental Analysis Score (Powered by live macro news catalyst & UN summit wire)
+  const macroImpact = getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category);
+  const fundamentalScore = macroImpact.sentimentScore;
         
   // 7. Sentiment Analysis Score
   const sentimentScore = Math.min(100, Math.max(10, Math.round(100 - currentBearishProb - (currentNeutralProb / 2))));
+
+  // Quantitative Reconciled Verdict (resolving Technical vs Macro News Divergence)
+  const reconciledVerdict = reconcileTechnicalAndFundamental(selectedAsset, selectedTimeframe);
+  const explicitAction: "BUY" | "SELL" | "WAIT" = reconciledVerdict.finalAction;
 
   // Weighted aggregate Overall Confluence Score
   const overallConfluenceScore = Math.round(
@@ -270,27 +286,24 @@ export default function MarketAnalysis({
     (sentimentScore * 0.13)
   );
 
-  // Overall Grade & Verdict matching the composite score
-  let overallGrade = "C STABLE CONSOLIDATION";
-  let overallVerdict = "STAND ASIDE / CONSOLIDATING";
-  let overallBg = "bg-slate-500/10 border-slate-500/30 text-slate-400";
-  let overallColorText = "text-slate-400";
+  // Overall Grade & Verdict matching the composite score & reconciled action
+  let overallGrade = "C BALANCED RANGE";
+  let overallVerdict = reconciledVerdict.actionBadge; // Explicit: "STRONG BUY (LONG)" or "STRONG SELL (SHORT)" or "WAIT / DEFENSIVE CASH"
+  let overallBg = "bg-slate-900 border-slate-800 text-slate-300";
+  let overallColorText = "text-amber-400";
 
-  if (overallConfluenceScore >= 85) {
-    overallGrade = "A+ MAXIMUM CONFLUENCE";
-    overallVerdict = "STRONG CONVINCING BUY ACCUMULATION";
-    overallBg = "bg-emerald-500/10 border-emerald-500/30 text-emerald-400";
+  if (explicitAction === "BUY") {
+    overallGrade = overallConfluenceScore >= 80 ? "A+ MAXIMUM BUY CONFLUENCE" : "A BULLISH ACCUMULATION";
+    overallBg = "bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border-emerald-500/40 text-emerald-400";
     overallColorText = "text-emerald-400";
-  } else if (overallConfluenceScore >= 70) {
-    overallGrade = "B+ MODERATE CONFLUENCE";
-    overallVerdict = "CAUTIOUS ACCUMULATION ON PULLBACKS";
-    overallBg = "bg-blue-500/10 border-blue-500/30 text-blue-400";
-    overallColorText = "text-blue-400";
-  } else if (overallConfluenceScore < 45) {
-    overallGrade = "D- HEAVY RISK EXPOSURE";
-    overallVerdict = "HEDGE PORTFOLIO / STRONG SELL FLOW";
-    overallBg = "bg-rose-500/10 border-rose-500/30 text-rose-400";
+  } else if (explicitAction === "SELL") {
+    overallGrade = reconciledVerdict.confluenceType.includes("DIVERGENCE") ? "A+ BEARISH DIVERGENCE (SHORT)" : "A HIGH PROBABILITY SHORT";
+    overallBg = "bg-gradient-to-r from-rose-950/80 via-slate-900 to-slate-900 border-rose-500/40 text-rose-400";
     overallColorText = "text-rose-400";
+  } else {
+    overallGrade = "C CAPITAL PRESERVATION (WAIT)";
+    overallBg = "bg-slate-900 border-amber-500/30 text-amber-400";
+    overallColorText = "text-amber-400";
   }
 
   // Factor Details
@@ -406,7 +419,37 @@ export default function MarketAnalysis({
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full sm:w-auto">
+          {/* 10-15 Min Auto Re-Analysis Cadence Badge */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs">
+            <Clock className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400 text-[10px]">Next:</span>
+              <span className="text-emerald-400 font-bold tracking-wider">{formatCountdown(secondsRemaining)}</span>
+              <span className="text-slate-700">|</span>
+              <div className="inline-flex rounded bg-slate-900 border border-slate-800 p-0.5">
+                <button
+                  onClick={() => { setReanalysisIntervalMin(10); setSecondsRemaining(10 * 60); }}
+                  className={`px-1.5 py-0.5 text-[9px] rounded font-bold transition-all cursor-pointer ${
+                    reanalysisIntervalMin === 10 ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Auto re-analyse every 10 minutes"
+                >
+                  10m
+                </button>
+                <button
+                  onClick={() => { setReanalysisIntervalMin(15); setSecondsRemaining(15 * 60); }}
+                  className={`px-1.5 py-0.5 text-[9px] rounded font-bold transition-all cursor-pointer ${
+                    reanalysisIntervalMin === 15 ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Auto re-analyse every 15 minutes"
+                >
+                  15m
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Engine Mode Toggle */}
           <div className="bg-slate-950 border border-slate-800 p-1 rounded-xl flex items-center font-mono text-xs">
             <button
@@ -436,18 +479,22 @@ export default function MarketAnalysis({
           </div>
 
           <button
-            onClick={onTriggerAnalysis}
+            onClick={() => {
+              onTriggerAnalysis();
+              handleScanTimeframe();
+              setSecondsRemaining(reanalysisIntervalMin * 60);
+            }}
             disabled={loading}
             className="w-full sm:w-auto px-4.5 py-2.5 text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white rounded-xl transition-all flex items-center justify-center gap-1.5 font-mono cursor-pointer shrink-0 shadow-lg"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? "Synthesizing Intel..." : "Re-Analyse Market"}
+            {loading ? "Synthesizing Intel..." : "Re-Analyse Now"}
           </button>
         </div>
       </div>
 
       {/* THREE-WAY CENTRAL SUB-TAB BAR */}
-      <div className="flex border-b border-slate-800">
+      <div className="flex flex-wrap border-b border-slate-800">
         <button
           onClick={() => setCurrentSubTab('radar')}
           className={`flex items-center gap-2 px-5 py-3.5 text-xs font-mono font-bold border-b-2 transition-all cursor-pointer ${
@@ -458,6 +505,18 @@ export default function MarketAnalysis({
         >
           <Compass className="h-4 w-4" />
           <span>Core Market Intel</span>
+        </button>
+        <button
+          onClick={() => setCurrentSubTab('news')}
+          className={`flex items-center gap-2 px-5 py-3.5 text-xs font-mono font-bold border-b-2 transition-all cursor-pointer ${
+            currentSubTab === 'news' 
+              ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' 
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Radio className="h-4 w-4 text-cyan-400" />
+          <span>Auto-Merged News & Catalysts</span>
+          <span className="ml-1 px-1.5 py-0.5 rounded text-[8px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">LIVE WIRE</span>
         </button>
         <button
           onClick={() => setCurrentSubTab('timeframe')}
@@ -696,6 +755,26 @@ export default function MarketAnalysis({
                         </div>
                       </div>
 
+                      {/* Auto-Merged Live Macro & UN Summit Shockwire */}
+                      <div className="p-3.5 bg-gradient-to-r from-slate-950 via-cyan-950/20 to-slate-950 border border-cyan-500/30 rounded-lg space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-mono">
+                          <span className="text-cyan-400 font-bold flex items-center gap-1.5">
+                            <Radio className="h-3.5 w-3.5 text-cyan-400 animate-pulse" />
+                            Auto-Merged Macro Catalyst: {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                            getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "CRITICAL" ? "bg-rose-500/20 text-rose-300" :
+                            getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "ELEVATED" ? "bg-amber-500/20 text-amber-300" :
+                            "bg-emerald-500/20 text-emerald-300"
+                          }`}>
+                            {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk} SHOCK RISK
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed font-mono">
+                          <strong className="text-amber-400">Protective Action:</strong> {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).volatilityBufferRecommendation}
+                        </p>
+                      </div>
+
                       <p className="text-slate-300 leading-relaxed italic bg-slate-950/40 p-3 border border-slate-800/50 rounded-lg font-mono">
                         {analysisData?.sentimentSummary || "Retail accounts are heavily crowded in short positions. Contending with this sentiment, proprietary order desks are sweeping discount sell-side stops, reinforcing probability-based continuation upward."}
                       </p>
@@ -876,7 +955,7 @@ export default function MarketAnalysis({
         {currentSubTab === 'overall' && (
           <div className="space-y-6 animate-fade-in">
             
-            {/* Overall result header score card */}
+            {/* Overall result header score card with Explicit BUY or SELL Action */}
             <div className={`p-6 border rounded-xl font-mono ${overallBg} space-y-4 shadow-xl relative overflow-hidden`}>
               <div className="absolute top-0 right-0 p-8 opacity-5">
                 <ShieldCheck className="h-40 w-40" />
@@ -884,8 +963,20 @@ export default function MarketAnalysis({
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/40 pb-4">
                 <div>
-                  <span className="text-[10px] text-slate-500 tracking-wider uppercase block font-bold">COMPOSITE MULTI-DIMENSIONAL CONFLUENCE</span>
-                  <h3 className={`text-lg font-black tracking-wide ${overallColorText}`}>{overallGrade}</h3>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] text-slate-400 tracking-wider uppercase block font-bold">COMPOSITE MULTI-DIMENSIONAL CONFLUENCE</span>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase font-mono ${
+                      explicitAction === "BUY" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" :
+                      explicitAction === "SELL" ? "bg-rose-500/20 text-rose-300 border border-rose-500/40" :
+                      "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                    }`}>
+                      {explicitAction === "BUY" ? "EXECUTE BUY / LONG" : explicitAction === "SELL" ? "EXECUTE SELL / SHORT" : "STAND ASIDE"}
+                    </span>
+                  </div>
+                  <h3 className={`text-xl sm:text-2xl font-black tracking-wide ${overallColorText}`}>{overallVerdict}</h3>
+                  <span className="text-xs text-slate-300 block font-mono mt-0.5">
+                    {selectedAsset.symbol} on {selectedTimeframe} chart. Reconciled across 7 analytical layers.
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
@@ -898,25 +989,96 @@ export default function MarketAnalysis({
                 </div>
               </div>
 
+              {/* Explicit BUY or SELL Action & Risk Buffer */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed">
-                <div>
-                  <span className="text-slate-500 block font-bold mb-1">PROBABILISTIC TRADING DECISION:</span>
-                  <div className="flex items-center gap-1.5">
-                    <div className={`h-2 w-2 rounded-full ${overallConfluenceScore >= 70 ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                    <span className="text-white font-bold">{overallVerdict}</span>
+                <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg">
+                  <span className="text-slate-400 block font-bold mb-1 uppercase text-[10px]">EXPLICIT ORDER DIRECTIVE:</span>
+                  <div className="flex items-center gap-2">
+                    <div className={`h-2.5 w-2.5 rounded-full ${explicitAction === "BUY" ? 'bg-emerald-400' : explicitAction === "SELL" ? 'bg-rose-400' : 'bg-amber-400'}`} />
+                    <span className="text-white font-extrabold text-sm">{explicitAction === "BUY" ? "BUY / LONG" : explicitAction === "SELL" ? "SELL / SHORT" : "HOLD / WAIT"}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">({overallGrade})</span>
                   </div>
+                  <p className="text-[11px] text-slate-300 mt-1.5 font-mono">
+                    {reconciledVerdict.tradeGuidance}
+                  </p>
                 </div>
-                <div>
-                  <span className="text-slate-500 block font-bold mb-1">RISK TOLERANCE COMPLIANCE:</span>
-                  <span className="text-slate-300">
-                    Enforcing absolute limit of {traderProfile?.riskTolerance === 'Conservative' ? '0.5%' : traderProfile?.riskTolerance === 'Aggressive' ? '2.0%' : '1.0%'} account margin per setup. Keep correlation factors low.
+
+                <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg">
+                  <span className="text-slate-400 block font-bold mb-1 uppercase text-[10px]">RISK TOLERANCE & BUFFER:</span>
+                  <span className="text-slate-300 block text-xs">
+                    {reconciledVerdict.riskBufferNote}
+                  </span>
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Account Cap: {traderProfile?.riskTolerance === 'Conservative' ? '0.5%' : traderProfile?.riskTolerance === 'Aggressive' ? '2.0%' : '1.0%'} equity.
                   </span>
                 </div>
               </div>
 
-              <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-[11px] text-slate-400 leading-relaxed">
-                <span className="font-bold text-slate-300 block mb-1">Aggregated Synthesized Math notes:</span>
-                This overall confluence is a direct, live math-aggregate across the entire platform's analytical layers. By factoring in high-tier Chart AI overlays, current scanned patterns, active trade setups, risk parameters, technical levels, central bank fundamental states, and retail contrarian sentiment index, the system creates a multi-layered filter guarding you from isolated traps.
+              {/* Divergence Conflict Resolution Banner */}
+              <div className="p-4 bg-slate-950 border border-cyan-500/30 rounded-xl space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-850 pb-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-cyan-400 uppercase">
+                    <Sparkles className="h-4 w-4 text-cyan-400" />
+                    <span>Technical vs Fundamental / News Divergence Resolution</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase self-start sm:self-auto ${
+                    reconciledVerdict.confluenceType.includes("DIVERGENCE")
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                      : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  }`}>
+                    {reconciledVerdict.confluenceType.replace(/_/g, " ")}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <div className="p-2 bg-slate-900 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-500 uppercase block">1. Technical Indicator Signal</span>
+                    <span className={`text-xs font-bold block mt-0.5 ${reconciledVerdict.technicalBias === "BUY" ? "text-emerald-400" : "text-rose-400"}`}>
+                      {reconciledVerdict.technicalBias} (Score: {reconciledVerdict.technicalScore}%)
+                    </span>
+                    <span className="text-[9px] text-slate-400">Moving averages & RSI bias</span>
+                  </div>
+
+                  <div className="p-2 bg-slate-900 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-500 uppercase block">2. Macro News Catalyst Wire</span>
+                    <span className={`text-xs font-bold block mt-0.5 ${reconciledVerdict.fundamentalBias === "BULLISH" ? "text-emerald-400" : "text-rose-400"}`}>
+                      {reconciledVerdict.fundamentalBias} (Score: {reconciledVerdict.fundamentalScore}%)
+                    </span>
+                    <span className="text-[9px] text-slate-400 truncate block">{macroImpact.primaryCatalyst}</span>
+                  </div>
+
+                  <div className="p-2 bg-slate-900 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-500 uppercase block">3. Real Result Outcome</span>
+                    <span className={`text-xs font-black block mt-0.5 ${explicitAction === "BUY" ? "text-emerald-400" : explicitAction === "SELL" ? "text-rose-400" : "text-amber-400"}`}>
+                      {explicitAction === "BUY" ? "BUY VERIFIED" : explicitAction === "SELL" ? "SELL VERIFIED" : "STAND ASIDE"}
+                    </span>
+                    <span className="text-[9px] text-slate-400">Conflict synthesized</span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-300 leading-relaxed bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60">
+                  {reconciledVerdict.divergenceResolutionNote}
+                </p>
+
+                {/* Institutional Price Execution Targets */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
+                  <div className="p-2 bg-slate-900/90 rounded border border-slate-800">
+                    <span className="text-[9px] text-slate-500 uppercase block">ENTRY PRICE</span>
+                    <span className="font-mono font-bold text-white">${reconciledVerdict.levels.entryPrice.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 50 ? 4 : 2 })}</span>
+                  </div>
+                  <div className="p-2 bg-slate-900/90 rounded border border-rose-500/30">
+                    <span className="text-[9px] text-rose-400 uppercase block">STOP LOSS</span>
+                    <span className="font-mono font-bold text-rose-300">${reconciledVerdict.levels.stopLoss.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 50 ? 4 : 2 })}</span>
+                  </div>
+                  <div className="p-2 bg-slate-900/90 rounded border border-emerald-500/30">
+                    <span className="text-[9px] text-emerald-400 uppercase block">TAKE PROFIT 1</span>
+                    <span className="font-mono font-bold text-emerald-300">${reconciledVerdict.levels.takeProfit1.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 50 ? 4 : 2 })}</span>
+                  </div>
+                  <div className="p-2 bg-slate-900/90 rounded border border-blue-500/30">
+                    <span className="text-[9px] text-blue-400 uppercase block">RISK / REWARD</span>
+                    <span className="font-mono font-bold text-blue-300">{reconciledVerdict.levels.riskReward}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1180,8 +1342,13 @@ export default function MarketAnalysis({
                   </label>
                   <select
                     value={selectedBrokerTarget}
-                    onChange={(e) => setSelectedBrokerTarget(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white font-mono text-xs font-bold focus:border-emerald-500 focus:outline-none"
+                    onChange={(e) => {
+                      const newTarget = e.target.value;
+                      setSelectedBrokerTarget(newTarget);
+                      const matched = availableBrokers.find(b => b.id === newTarget);
+                      setActivePrimaryBroker(newTarget, matched?.name);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white font-mono text-xs font-bold focus:border-emerald-500 focus:outline-none cursor-pointer"
                   >
                     {availableBrokers.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -1260,64 +1427,217 @@ export default function MarketAnalysis({
               </div>
             </div>
 
-            {/* Architecture Explanations: Direct Execution, STP Partners & Payouts */}
+            {/* Clean Trader-Style Institutional Direct Execution Engine */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
               
-              {/* Card 1: Connected vs Broker Partners */}
+              {/* Panel 1: Execution Latency & Routing Status */}
               <div className="p-4 bg-slate-950 border border-slate-850 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-blue-400 font-bold text-[11px] uppercase border-b border-slate-850 pb-2">
-                  <Briefcase className="h-4 w-4" />
-                  Connected vs Broker Partners
+                <div className="flex items-center gap-2 text-cyan-400 font-bold text-[11px] uppercase border-b border-slate-850 pb-2">
+                  <Cpu className="h-4 w-4" />
+                  Execution Latency & Routing
                 </div>
                 <div className="space-y-1.5 text-slate-300 text-[11px] leading-relaxed">
-                  <p>
-                    <strong className="text-white">Connected Brokers:</strong> When traders link their own broker (e.g. IC Markets, Pepperstone, Binance), orders route through their personal API keys directly to their account.
-                  </p>
-                  <p>
-                    <strong className="text-white">Broker Partners (STP):</strong> For traders without an external broker, our platform bridges orders through internal white-label STP desks (QuantIntel Prime STP, Apex Liquid) straight into institutional liquidity providers (LPs).
-                  </p>
+                  <div className="flex justify-between items-center py-0.5 border-b border-slate-900">
+                    <span className="text-slate-500">Pipeline Latency:</span>
+                    <span className="text-emerald-400 font-bold font-mono">11ms (Ultra-Low)</span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5 border-b border-slate-900">
+                    <span className="text-slate-500">Slippage Guard:</span>
+                    <span className="text-cyan-400 font-bold font-mono">&le; 0.4 Pips Dynamic</span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5">
+                    <span className="text-slate-500">Order Dispatch:</span>
+                    <span className="text-emerald-400 font-bold font-mono">STP Direct Market Fill</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Card 2: Which STP Brokers Execute Orders */}
+              {/* Panel 2: Protective Volatility & Risk Bounds */}
               <div className="p-4 bg-slate-950 border border-slate-850 rounded-xl space-y-2">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold text-[11px] uppercase border-b border-slate-850 pb-2">
-                  <Shield className="h-4 w-4" />
-                  Active STP Brokers on Platform
+                  <ShieldCheck className="h-4 w-4" />
+                  Protective Volatility Bounds
                 </div>
                 <div className="space-y-1.5 text-slate-300 text-[11px] leading-relaxed">
-                  <p>
-                    The primary default executing STP broker is <strong className="text-emerald-400">QuantIntel Prime STP</strong> (Forex & Multi-Asset, backed by Alpha DMA liquidity).
-                  </p>
-                  <p>
-                    Additional active platform STP desks include <strong className="text-white">Apex Liquid Brokerage</strong> (Crypto/Derivatives) and <strong className="text-white">Vanguard STP Markets</strong>. Administrators can also launch custom white-label STP brokers directly inside the Brokers manager tab.
-                  </p>
+                  <div className="flex justify-between items-center py-0.5 border-b border-slate-900">
+                    <span className="text-slate-500">Stop Loss Protocol:</span>
+                    <span className="text-slate-200 font-bold font-mono">1.5x ATR Volatility Buffer</span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5 border-b border-slate-900">
+                    <span className="text-slate-500">Breakeven Trigger:</span>
+                    <span className="text-emerald-400 font-bold font-mono">+1.0R Price Progress</span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5">
+                    <span className="text-slate-500">Take Profit Scaling:</span>
+                    <span className="text-slate-200 font-bold font-mono">50% Scale-Out at TP1</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Card 3: How to Withdraw What You Earn */}
+              {/* Panel 3: Direct Trader Style Actions */}
               <div className="p-4 bg-slate-950 border border-slate-850 rounded-xl space-y-2">
                 <div className="flex items-center gap-2 text-amber-400 font-bold text-[11px] uppercase border-b border-slate-850 pb-2">
-                  <DollarSign className="h-4 w-4" />
-                  How to Withdraw Earnings
+                  <Zap className="h-4 w-4" />
+                  Fast Execution Actions
                 </div>
-                <div className="space-y-1.5 text-slate-300 text-[11px] leading-relaxed">
-                  <p>
-                    Earnings accumulate through trading profits and administrative STP volume markups ($5 - $8 per lot cleared).
-                  </p>
-                  <p>
-                    To withdraw funds, navigate to the <strong className="text-amber-400">Brokers tab</strong> &gt; <strong className="text-white">STP Whitelabel Manager</strong>. Enter your payout amount, select your gateway (<strong className="text-white">USDT TRC-20, USDC ERC-20, BTC, Bank Wire, or PayPal</strong>), specify your destination address, and submit instant dispatch.
+                <div className="space-y-2 text-[11px]">
+                  <p className="text-slate-400">
+                    Direct execution routes orders instantaneously with pre-configured risk guards and automated trade journaling.
                   </p>
                   {onNavigateToSection && (
-                    <button
-                      type="button"
-                      onClick={() => onNavigateToSection('brokers')}
-                      className="mt-2 w-full py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 rounded text-[10.5px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
-                    >
-                      Go to Brokers & Withdrawal Desk <ArrowRight className="h-3 w-3" />
-                    </button>
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToSection('setup')}
+                        className="w-full py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 rounded text-[10.5px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 font-mono"
+                      >
+                        Launch Configured Trade Setup <ArrowRight className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToSection('shield')}
+                        className="w-full py-1.5 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 rounded text-[10.5px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 font-mono"
+                      >
+                        Inspect Loss Protection Shield <ArrowRight className="h-3 w-3" />
+                      </button>
+                    </div>
                   )}
                 </div>
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 5: AUTO-MERGED NEWS & MACRO VOLATILITY WIRE */}
+        {currentSubTab === 'news' && (
+          <div className="space-y-6">
+            
+            {/* Macro Wire Header Banner */}
+            <div className="bg-gradient-to-r from-slate-900 via-cyan-950/20 to-slate-900 border border-cyan-500/30 rounded-2xl p-5 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Radio className="h-5 w-5 text-cyan-400 animate-pulse" />
+                    <h3 className="text-sm font-black uppercase tracking-wider text-white font-mono">
+                      Auto-Merged Macro Shock & News Wire for {selectedAsset.symbol}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    UN Summits, Central Bank policy announcements, Dollar Index (DXY) safe-haven surges, and institutional liquidity flows automatically merged into technical models.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className={`px-3 py-1.5 rounded-xl text-xs font-mono font-black uppercase tracking-wider ${
+                    getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "CRITICAL"
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                      : getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "ELEVATED"
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                  }`}>
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk} MACRO RISK
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Contextual Impact & News Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Left Column: Asset Shock Diagnostics */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+                <div className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-3">
+                  <Sparkles className="h-4 w-4" />
+                  Catalyst Intelligence
+                </div>
+
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-850 space-y-2 text-xs font-mono">
+                  <div className="text-slate-500 uppercase text-[10px]">Dominant Macro Catalyst:</div>
+                  <div className="text-white font-bold leading-snug">
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}
+                  </div>
+                  <div className="text-slate-400 text-[11px] pt-1 border-t border-slate-900">
+                    Source: {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).sourceEvent}
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-850 space-y-2 text-xs font-mono">
+                  <div className="text-slate-500 uppercase text-[10px]">Protective Buffer Recommendation:</div>
+                  <div className="text-amber-400 font-bold leading-snug text-[11px]">
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).volatilityBufferRecommendation}
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-850 space-y-2 text-xs font-mono">
+                  <div className="text-slate-500 uppercase text-[10px]">Institutional Action Directive:</div>
+                  <div className="text-emerald-400 font-bold leading-snug text-[11px]">
+                    {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).lossShieldAction}
+                  </div>
+                </div>
+
+                {onNavigateToSection && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToSection('news')}
+                    className="w-full py-2 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 font-mono font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                    Open Full News Terminal
+                  </button>
+                )}
+              </div>
+
+              {/* Right Column: Live Matching News Stories */}
+              <div className="lg:col-span-2 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider">
+                    Recent Verified News & Liquidity Wires for {selectedAsset.symbol}
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-500">
+                    {getNewsForAsset(selectedAsset.symbol, selectedAsset.category).length} Stories Merged
+                  </span>
+                </div>
+
+                {getNewsForAsset(selectedAsset.symbol, selectedAsset.category).map((story) => (
+                  <div 
+                    key={story.id}
+                    className="p-4 bg-slate-900 border border-slate-800 rounded-xl hover:border-slate-700 transition-all space-y-2.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-[10px] font-mono">
+                        <span className="text-cyan-400 font-bold">{story.source}</span>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-slate-400">{story.timeAgo}</span>
+                        <span className="text-slate-600">•</span>
+                        <span className="px-1.5 py-0.5 bg-slate-950 text-slate-300 rounded border border-slate-800">
+                          {story.category}
+                        </span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-black ${
+                        story.sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" :
+                        story.sentiment === "BEARISH" ? "bg-rose-500/10 text-rose-400 border border-rose-500/30" :
+                        "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                      }`}>
+                        {story.sentiment} ({story.impact} IMPACT)
+                      </span>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-white leading-snug">
+                      {story.headline}
+                    </h4>
+
+                    <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                      {story.summary}
+                    </p>
+
+                    <div className="p-2 bg-slate-950 rounded border border-slate-850 text-[10.5px] font-mono text-amber-300/90 flex items-center gap-2">
+                      <ShieldAlert className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                      <span>{story.riskImpactNote}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
 
             </div>

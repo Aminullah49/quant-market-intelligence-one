@@ -9,6 +9,11 @@ import {
   calculatePips, 
   CurrencyConfig 
 } from "../utils/currencyAndPips";
+import { 
+  getActivePrimaryBroker, 
+  executeDirectBrokerOrder, 
+  UnifiedBroker 
+} from "../utils/brokerSync";
 
 interface RiskCalculatorProps {
   initialBalance?: number;
@@ -35,6 +40,7 @@ export default function RiskCalculator({
   
   // Direct order state
   const [isPlacingDirectOrder, setIsPlacingDirectOrder] = useState(false);
+  const [activeBroker, setActiveBroker] = useState<UnifiedBroker>(() => getActivePrimaryBroker());
   const [directOrderReceipt, setDirectOrderReceipt] = useState<{
     id: string;
     market: string;
@@ -45,6 +51,21 @@ export default function RiskCalculator({
     tp: number;
     broker: string;
   } | null>(null);
+
+  useEffect(() => {
+    const handleSync = () => {
+      setActiveBroker(getActivePrimaryBroker());
+    };
+    handleSync();
+    window.addEventListener("primary_broker_changed", handleSync);
+    window.addEventListener("broker_connected", handleSync);
+    window.addEventListener("storage", handleSync);
+    return () => {
+      window.removeEventListener("primary_broker_changed", handleSync);
+      window.removeEventListener("broker_connected", handleSync);
+      window.removeEventListener("storage", handleSync);
+    };
+  }, []);
 
   // Balance is entered in the active account currency (e.g. ₦16,000,000 or $10,000)
   const [balanceInCurrency, setBalanceInCurrency] = useState<number>(() => {
@@ -146,71 +167,33 @@ export default function RiskCalculator({
     setIsPlacingDirectOrder(true);
     setDirectOrderReceipt(null);
 
-    const ticketId = `STP-RISK-${Math.floor(100000 + Math.random() * 900000)}`;
-    const brokerName = "AI QUANT PRIME DESK";
     const executedLots = parseFloat(standardLots.toFixed(2)) || 0.1;
 
     setTimeout(() => {
       setIsPlacingDirectOrder(false);
 
-      // Save to position store for broker & paper trading
-      try {
-        const positionsRaw = localStorage.getItem("paper_trading_positions_v1");
-        const openPositions = positionsRaw ? JSON.parse(positionsRaw) : [];
-        const newPosition = {
-          id: `pos_${Date.now()}`,
-          symbol: currentSymbol,
-          type: side,
-          entryPrice: entryPrice,
-          currentPrice: entryPrice,
-          size: executedLots,
-          leverage: 100,
-          stopLoss: stopLoss,
-          takeProfit: targetPrice,
-          pnl: 0,
-          timestamp: new Date().toISOString(),
-          status: "OPEN",
-          brokerId: "quantintel-stp",
-          notes: `Calculated Risk Order (Risk: ${riskPercent}%, RR 1:${rrRatio.toFixed(2)}) Ticket #${ticketId}`
-        };
-        localStorage.setItem("paper_trading_positions_v1", JSON.stringify([newPosition, ...openPositions]));
-      } catch (e) {
-        console.error("Risk direct order position sync failed:", e);
-      }
-
-      // Sync to journal entries
-      try {
-        const journalRaw = localStorage.getItem("ai_quant_journal_entries");
-        const existingEntries = journalRaw ? JSON.parse(journalRaw) : [];
-        const newEntry = {
-          id: `j_${Date.now()}`,
-          date: new Date().toISOString().split("T")[0],
-          market: currentSymbol,
-          direction: side,
-          entryPrice: entryPrice,
-          exitPrice: targetPrice,
-          outcome: "WIN",
-          profit: expectedProfitCurrency,
-          emotion: "Calculated",
-          mistake: "None",
-          notes: `Executed via Risk Calculator. Sizing: ${executedLots} Lots. SL Pips: ${slPips.toFixed(1)}, TP Pips: ${tpPips.toFixed(1)}, RR: 1:${rrRatio.toFixed(2)}. Ticket #${ticketId}.`
-        };
-        localStorage.setItem("ai_quant_journal_entries", JSON.stringify([newEntry, ...existingEntries]));
-      } catch (e) {
-        console.error("Journal sync failed:", e);
-      }
+      const receipt = executeDirectBrokerOrder({
+        symbol: currentSymbol,
+        side,
+        price: entryPrice,
+        lotSize: executedLots,
+        stopLoss,
+        takeProfit: targetPrice,
+        category: activeCategory,
+        sourceModule: `Risk & Sizing Calculator (${riskPercent}% Risk, 1:${rrRatio.toFixed(2)} R:R)`
+      });
 
       setDirectOrderReceipt({
-        id: ticketId,
+        id: receipt.ticketId,
         market: currentSymbol,
         direction: side,
-        price: entryPrice,
-        lots: executedLots,
-        sl: stopLoss,
-        tp: targetPrice,
-        broker: brokerName
+        price: receipt.price,
+        lots: receipt.lotSize,
+        sl: receipt.stopLoss,
+        tp: receipt.takeProfit,
+        broker: `${receipt.brokerName} (${receipt.accountNo})`
       });
-    }, 1400);
+    }, 1100);
   };
 
   return (
@@ -312,9 +295,14 @@ export default function RiskCalculator({
             </div>
 
             <div>
-              <label className="text-[11px] text-slate-400 font-mono block mb-1.5 uppercase">
-                Desired Risk Percentage (%)
-              </label>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-[11px] text-slate-400 font-mono uppercase">
+                  Desired Risk Percentage (%)
+                </label>
+                <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                  {riskPercent <= 1 ? "🛡️ Institutional Shield" : riskPercent <= 2 ? "⚖️ Standard Cap" : "⚠️ High Exposure"}
+                </span>
+              </div>
               <div className="relative">
                 <span className="absolute left-3.5 top-2.5 text-slate-500 font-mono text-xs">%</span>
                 <input
@@ -324,6 +312,29 @@ export default function RiskCalculator({
                   onChange={(e) => setRiskPercent(Number(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 text-white rounded-lg pl-8 pr-4 py-2 text-xs font-mono focus:outline-none"
                 />
+              </div>
+
+              {/* Quick Institutional Presets */}
+              <div className="flex items-center gap-1.5 mt-2">
+                {[
+                  { label: "0.5% Defensive", val: 0.5 },
+                  { label: "1.0% Institutional", val: 1.0 },
+                  { label: "1.5% Balanced", val: 1.5 },
+                  { label: "2.0% Hard Cap", val: 2.0 }
+                ].map(preset => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => setRiskPercent(preset.val)}
+                    className={`flex-1 py-1 rounded text-[9px] font-mono font-bold transition-all cursor-pointer border ${
+                      riskPercent === preset.val
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow"
+                        : "bg-slate-950 text-slate-400 hover:text-white border-slate-800"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
               </div>
             </div>
 

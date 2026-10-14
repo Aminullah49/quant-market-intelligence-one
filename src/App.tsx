@@ -25,16 +25,20 @@ import AdminAdsManager from "./components/AdminAdsManager";
 import PaperTrading from "./components/PaperTrading";
 import AssetSwitcherBar from "./components/AssetSwitcherBar";
 import EntryChecklist from "./components/EntryChecklist";
+import LossProtectionShield from "./components/LossProtectionShield";
+import NewsFeed from "./components/NewsFeed";
 
 // Conversational Coach overlay
 import MentorCoach from "./components/MentorCoach";
 import SearchModal from "./components/SearchModal";
+import QuickOrderDock from "./components/QuickOrderDock";
+import { getActivePrimaryBroker, syncUserBrokerContext, getCurrentUser, UnifiedBroker } from "./utils/brokerSync";
 
 // Visual Icons
 import { 
   LayoutDashboard, LineChart, Cpu, Crosshair, Calculator, 
   Clock, BookOpen, User, Globe, Layers, Bell, Settings,
-  Activity, Menu, X, CheckSquare, Star, HelpCircle, Search, Moon, Link2, Crown, Award, ShieldAlert, ShieldCheck, Lock, Database, LogOut, UserPlus, Sliders, Sparkles, Play
+  Activity, Menu, X, CheckSquare, Star, HelpCircle, Search, Moon, Link2, Crown, Award, ShieldAlert, ShieldCheck, Lock, Database, LogOut, UserPlus, Sliders, Sparkles, Play, Radio, Users, CheckCircle2, Zap, ChevronDown
 } from "lucide-react";
 
 export default function App() {
@@ -116,6 +120,28 @@ export default function App() {
   useEffect(() => {
     selectedAssetRef.current = selectedAsset;
   }, [selectedAsset]);
+
+  // Primary Connected Broker for direct execution tracking
+  const [activeExecutionBroker, setActiveExecutionBroker] = useState<UnifiedBroker>(() => {
+    const u = getCurrentUser();
+    return getActivePrimaryBroker(u?.id);
+  });
+
+  useEffect(() => {
+    const syncBroker = () => {
+      const u = getCurrentUser();
+      setActiveExecutionBroker(getActivePrimaryBroker(u?.id));
+    };
+    syncBroker();
+    window.addEventListener("primary_broker_changed", syncBroker);
+    window.addEventListener("broker_connected", syncBroker);
+    window.addEventListener("storage", syncBroker);
+    return () => {
+      window.removeEventListener("primary_broker_changed", syncBroker);
+      window.removeEventListener("broker_connected", syncBroker);
+      window.removeEventListener("storage", syncBroker);
+    };
+  }, []);
 
   const liveRatesBaselineRef = useRef<Record<string, number>>({});
 
@@ -401,6 +427,27 @@ export default function App() {
     }
     return [
       {
+        id: "u_aminu",
+        username: "aminu",
+        displayName: "Aminu",
+        email: "mailstoaminu@gmail.com",
+        password: "password123",
+        plan: "quantum",
+        profile: {
+          style: "Day Trader",
+          timeframe: "H4",
+          market: "Multi-Asset",
+          riskTolerance: "Balanced",
+          weakness: "Over-trading",
+          leverage: 20,
+          displayName: "Aminu",
+          tradingCapital: 75000,
+          dailyGoalPercent: 2.5,
+          experienceYears: 6,
+          timezone: "GMT+1"
+        }
+      },
+      {
         id: "u_ahmad",
         username: "ahmad",
         displayName: "Ahmad",
@@ -476,8 +523,31 @@ export default function App() {
         // ignore
       }
     }
-    return null;
+    // Default to Aminu (mailstoaminu@gmail.com)
+    return {
+      id: "u_aminu",
+      username: "aminu",
+      displayName: "Aminu",
+      email: "mailstoaminu@gmail.com",
+      password: "password123",
+      plan: "quantum",
+      profile: {
+        style: "Day Trader",
+        timeframe: "H4",
+        market: "Multi-Asset",
+        riskTolerance: "Balanced",
+        weakness: "Over-trading",
+        leverage: 20,
+        displayName: "Aminu",
+        tradingCapital: 75000,
+        dailyGoalPercent: 2.5,
+        experienceYears: 6,
+        timezone: "GMT+1"
+      }
+    };
   });
+
+  const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
 
   // Keep traderProfile in sync with currentUser's profile
   const [traderProfile, setTraderProfile] = useState<TraderDNA>(() => {
@@ -493,17 +563,27 @@ export default function App() {
     return {
       style: "Day Trader",
       timeframe: "H4",
-      market: "Forex",
+      market: "Multi-Asset",
       riskTolerance: "Balanced",
-      weakness: "Revenge trading/FOMO",
-      leverage: 10,
-      displayName: "Ahmad",
-      tradingCapital: 25000,
+      weakness: "Over-trading",
+      leverage: 20,
+      displayName: "Aminu",
+      tradingCapital: 75000,
       dailyGoalPercent: 2.5,
-      experienceYears: 5,
-      timezone: "GMT+3"
+      experienceYears: 6,
+      timezone: "GMT+1"
     };
   });
+
+  // Ensure current user session is stored and user broker context synced on boot
+  useEffect(() => {
+    if (currentUser) {
+      if (!localStorage.getItem("current_trader_user")) {
+        localStorage.setItem("current_trader_user", JSON.stringify(currentUser));
+      }
+      syncUserBrokerContext(currentUser);
+    }
+  }, []);
 
   const handleUpdateProfile = (newProfile: TraderDNA) => {
     setTraderProfile(newProfile);
@@ -538,6 +618,7 @@ export default function App() {
     setCurrentPlan(user.plan || "explorer");
     localStorage.setItem("current_trader_user", JSON.stringify(user));
     localStorage.setItem("trader_plan", user.plan || "explorer");
+    syncUserBrokerContext(user);
   };
 
   const handleRegisterAccount = (user: RegisteredUser) => {
@@ -550,6 +631,7 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem("current_trader_user");
     setAuthInitialTab('signin');
+    syncUserBrokerContext(null);
   };
 
   const [authInitialTab, setAuthInitialTab] = useState<'signin' | 'signup'>('signin');
@@ -599,6 +681,20 @@ export default function App() {
     setAiScanMode(mode);
     localStorage.setItem("ai_scan_mode", mode);
   };
+
+  // Floating Quick Order Execution Dock state
+  const [isQuickDockEnabled, setIsQuickDockEnabled] = useState<boolean>(() => {
+    return localStorage.getItem("quick_order_dock_enabled") !== "false";
+  });
+  const [quickDockOpen, setQuickDockOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleDockToggled = () => {
+      setIsQuickDockEnabled(localStorage.getItem("quick_order_dock_enabled") !== "false");
+    };
+    window.addEventListener("quick_dock_toggled", handleDockToggled);
+    return () => window.removeEventListener("quick_dock_toggled", handleDockToggled);
+  }, []);
 
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [loadingSetup, setLoadingSetup] = useState(false);
@@ -741,6 +837,19 @@ export default function App() {
     const savedCampaigns = localStorage.getItem("admin_ad_campaigns");
     if (!savedCampaigns) {
       const PRESET_ADS = [
+        {
+          id: "fundednext-prop",
+          title: "FUNDEDNEXT: TRADE UP TO $300,000 CAPITAL",
+          description: "Earn 15% profit sharing during evaluation! No time limits on Stellar challenge, 90% profit splits, and direct MT5/cTrader bridge sync.",
+          imageUrl: "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?auto=format&fit=crop&w=800&q=80",
+          linkUrl: "https://fundednext.com",
+          type: "banner",
+          provider: "custom",
+          isActive: true,
+          targetPlan: "explorer",
+          impressions: 1680,
+          clicks: 245
+        },
         {
           id: "apex-funding",
           title: "APEX TRADER FUNDING: 90% OFF SALE!",
@@ -1021,6 +1130,8 @@ export default function App() {
   const primaryMenuItems: SidebarItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
     { id: 'chartai', label: 'Chart AI', icon: <LineChart className="h-4 w-4" />, badge: 1 },
+    { id: 'news', label: 'News Feed & Wire', icon: <Radio className="h-4 w-4 text-cyan-400" />, badge: 8 },
+    { id: 'shield', label: 'Loss Protection Shield', icon: <ShieldAlert className="h-4 w-4 text-rose-400" />, badge: 6 },
     { id: 'checklist', label: 'Entry Checklist', icon: <CheckSquare className="h-4 w-4 text-emerald-400" />, badge: 10 },
     { id: 'analysis', label: 'Market Analysis', icon: <Cpu className="h-4 w-4" />, badge: 2 },
     { id: 'setup', label: 'Trade Setup', icon: <Crosshair className="h-4 w-4" />, badge: 3 },
@@ -1038,8 +1149,8 @@ export default function App() {
   const secondaryMenuItems: SidebarItem[] = [
     { id: 'watchlist', label: 'Watchlist', icon: <Star className="h-4 w-4" /> },
     { id: 'strategylab', label: 'Backtesting', icon: <Layers className="h-4 w-4" /> },
+    { id: 'recommendations' as const, label: 'Suggestions & Roadmap', icon: <Sparkles className="h-4 w-4 text-blue-400" />, badge: 7 },
     { id: 'subscription', label: 'Premium Plans', icon: <Crown className="h-4.5 w-4.5 text-amber-400" /> },
-    ...(userRole === 'admin' ? [{ id: 'recommendations' as const, label: 'Action Plan', icon: <Sparkles className="h-4 w-4 text-blue-400" /> }] : []),
     ...(userRole === 'admin' ? [{ id: 'settings' as const, label: 'Settings', icon: <Settings className="h-4 w-4" /> }] : []),
     { id: 'help', label: 'Help & Support', icon: <HelpCircle className="h-4 w-4" /> },
   ];
@@ -1363,7 +1474,7 @@ export default function App() {
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-800/40">
                         <span>Gemini Engine:</span>
-                        <span className="text-emerald-400">gemini-3.5-flash</span>
+                        <span className="text-emerald-400">gemini-3.8-flash</span>
                       </div>
                       <div className="flex justify-between py-1">
                         <span>Database State:</span>
@@ -1502,14 +1613,14 @@ export default function App() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl animate-fade-in">
                 <div className="border-b border-slate-800 pb-4 mb-6">
                   <span className="text-xs font-mono text-emerald-400 tracking-wider uppercase block mb-1">
-                    LIQUIDITY PROVIDERS, STP INTEGRATIONS & COMMISSION EARNINGS
+                    LIQUIDITY PROVIDERS, STP INTEGRATIONS & DIRECT EXECUTION GATEWAYS
                   </span>
                   <h2 className="text-xl font-bold text-white flex items-center gap-2">
                     <Link2 className="h-5 w-5 text-emerald-400 animate-pulse" />
                     Broker, Partner & API Clearing Matrix
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Configure institutional raw feed pip markups, manage API connected broker accounts, monitor real-time client trade routing volumes, and instantly execute collected commission rebate withdrawals.
+                    Connect institutional multi-asset broker accounts, manage API execution gateways, monitor real-time order routing, and execute trades with ultra-low latency.
                   </p>
                 </div>
                 <BrokersView 
@@ -1648,6 +1759,26 @@ export default function App() {
             </span>
           </button>
 
+          {/* Active Connected Execution Broker Badge */}
+          <button
+            onClick={() => setCurrentSection("brokers")}
+            className="flex items-center gap-2 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/50 px-2.5 py-1 rounded-xl cursor-pointer transition-all font-mono shadow-sm group"
+            title="Auto-Routed Execution Target - Click to change broker"
+          >
+            <span className={`h-2 w-2 rounded-full shrink-0 ${activeExecutionBroker.connected ? "bg-emerald-400 animate-pulse ring-2 ring-emerald-500/20" : "bg-amber-400"}`} />
+            <div className="text-left hidden sm:block">
+              <span className="text-[7.5px] text-slate-500 uppercase font-black block leading-none">
+                {currentUser?.displayName ? `${currentUser.displayName.toUpperCase()}'S BROKER` : "AUTO-ROUTED BROKER"}
+              </span>
+              <span className="text-[10.5px] font-black text-white block leading-tight truncate max-w-[130px] group-hover:text-emerald-400 transition-colors">
+                {activeExecutionBroker.name.split(" ")[0]} {activeExecutionBroker.accountNo ? `(${activeExecutionBroker.accountNo})` : ""}
+              </span>
+            </div>
+            <span className="text-[8.5px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-black tracking-wider uppercase">
+              DIRECT
+            </span>
+          </button>
+
           <div className="h-5 w-[1px] bg-slate-800" />
 
           {/* Secure Admin Indicator (only shown if admin role is successfully unlocked) */}
@@ -1681,42 +1812,26 @@ export default function App() {
             </>
           )}
 
-          {/* User profile block */}
+          {/* User profile block with direct broker routing switcher */}
           {currentUser && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 relative">
               <div 
-                onClick={() => setCurrentSection("profile")}
-                className="flex items-center gap-2 bg-slate-950 hover:bg-slate-800/40 border border-slate-800 px-2.5 py-1 rounded-xl cursor-pointer transition-all"
+                onClick={() => setAccountSwitcherOpen(prev => !prev)}
+                className="flex items-center gap-2 bg-slate-950 hover:bg-slate-800/60 border border-slate-800 hover:border-blue-500/40 px-2.5 py-1 rounded-xl cursor-pointer transition-all shadow-sm"
+                title="Click to switch trader account and auto-routing broker"
               >
                 <div className="relative h-7 w-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-xs text-white border border-blue-400/20 shrink-0">
                   <span>{(currentUser.displayName || currentUser.username || "A").substring(0, 1).toUpperCase()}</span>
                   <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-emerald-500 border border-slate-950 animate-pulse" />
                 </div>
                 <div className="hidden sm:block text-left">
-                  <span className="text-[9px] text-slate-500 font-mono block leading-tight font-bold">Welcome</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-slate-500 font-mono block leading-tight font-bold">Trader Account</span>
+                    <ChevronDown className={`h-3 w-3 text-slate-400 transition-transform ${accountSwitcherOpen ? 'rotate-180' : ''}`} />
+                  </div>
                   <div className="text-xs font-black text-white flex items-center gap-1 leading-tight">
                     <span>{currentUser.displayName || currentUser.username}</span>
                     <span className={`text-[8.5px] font-mono font-black ${userRole === 'admin' ? 'text-emerald-400' : 'text-rose-400'}`}>({userRole.toUpperCase()})</span>
-                    <span 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCurrentSection("subscription");
-                      }}
-                      className={`text-[8px] font-mono font-extrabold tracking-wider uppercase px-1.5 py-0.5 rounded ml-1 border ${
-                        currentPlan === 'forever'
-                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                          : currentPlan === 'quantum' 
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
-                          : currentPlan === 'analyst'
-                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                          : currentPlan === 'pro' 
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                      title="Your subscription plan - Click to manage"
-                    >
-                      {currentPlan}
-                    </span>
                   </div>
                 </div>
               </div>
@@ -1729,6 +1844,111 @@ export default function App() {
               >
                 <LogOut className="h-3.5 w-3.5" />
               </button>
+
+              {/* Quick Account Switcher Dropdown Modal */}
+              {accountSwitcherOpen && (
+                <div className="absolute top-full right-0 mt-2 z-50 w-80 sm:w-96 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-4 font-mono text-xs animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-blue-400" />
+                      <span className="font-extrabold text-white uppercase tracking-wider text-[11px]">
+                        Switch Trader Account
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setAccountSwitcherOpen(false)}
+                      className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
+                    Each user has their own dedicated broker. When you switch accounts or connect a broker, all orders placed anywhere in the platform automatically execute into that account.
+                  </p>
+
+                  <div className="space-y-2 mb-3">
+                    {accounts.map(acc => {
+                      const isCurrent = currentUser?.username?.toLowerCase() === acc.username.toLowerCase();
+                      const brokerTag = 
+                        acc.username === "aminu" ? { name: "Interactive Brokers LLC", acc: "IB-AMINU-88219" } :
+                        acc.username === "sarah" ? { name: "Binance Prime API", acc: "CRYPTO-SAR-44912" } :
+                        acc.username === "marcus" ? { name: "Alpaca Securities", acc: "STK-MAR-10924" } :
+                        acc.username === "ahmad" ? { name: "OANDA Global Markets", acc: "FX-AHM-95821" } : 
+                        { name: "Direct Connected Broker", acc: "Active Route" };
+
+                      return (
+                        <div
+                          key={acc.id}
+                          onClick={() => {
+                            if (!isCurrent) {
+                              handleLoginSuccess(acc);
+                            }
+                            setAccountSwitcherOpen(false);
+                          }}
+                          className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                            isCurrent
+                              ? "bg-blue-950/40 border-blue-500/50 shadow-md shadow-blue-950/30"
+                              : "bg-slate-950/70 border-slate-800 hover:border-slate-700 hover:bg-slate-950"
+                          }`}
+                        >
+                          <div className="min-w-0 pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-extrabold text-white text-xs">{acc.displayName}</span>
+                              <span className="text-[9px] text-slate-400">({acc.email})</span>
+                              {isCurrent && (
+                                <span className="px-1.5 py-0.2 rounded text-[7.5px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
+                                  ACTIVE
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 text-[9.5px] text-emerald-400 mt-1 truncate">
+                              <Zap className="h-3 w-3 shrink-0 fill-emerald-400" />
+                              <span className="truncate">Auto-Routes to: <strong>{brokerTag.name}</strong></span>
+                              <span className="text-slate-400">({brokerTag.acc})</span>
+                            </div>
+                          </div>
+
+                          {!isCurrent ? (
+                            <button
+                              type="button"
+                              className="px-2 py-1 bg-blue-600/30 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 rounded-lg text-[9px] font-bold shrink-0 transition-all"
+                            >
+                              Switch
+                            </button>
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentSection("profile");
+                        setAccountSwitcherOpen(false);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      Edit Trader DNA
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentSection("brokers");
+                        setAccountSwitcherOpen(false);
+                      }}
+                      className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-lg transition-all flex items-center gap-1 text-[10px] shadow"
+                    >
+                      <Zap className="h-3 w-3" />
+                      <span>Manage Brokers</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1935,6 +2155,25 @@ export default function App() {
             />
           )}
 
+          {currentSection === 'news' && (
+            <NewsFeed 
+              selectedAsset={selectedAsset}
+              onSelectAsset={setSelectedAsset}
+              allAssets={assets}
+              onNavigateToSection={(sec: any) => setCurrentSection(sec)}
+            />
+          )}
+
+          {currentSection === 'shield' && (
+            <LossProtectionShield 
+              assets={assets}
+              selectedAsset={selectedAsset}
+              onSelectAsset={setSelectedAsset}
+              onNavigateToSection={(sec: any) => setCurrentSection(sec)}
+              traderProfile={traderProfile}
+            />
+          )}
+
           {currentSection === 'checklist' && (
             <EntryChecklist 
               selectedAsset={selectedAsset} 
@@ -1974,6 +2213,7 @@ export default function App() {
               aiScanMode={aiScanMode}
               onAiScanModeChange={handleAiScanModeChange}
               onNavigateToSection={(sec: any) => setCurrentSection(sec)}
+              currentUser={currentUser}
             />
           )}
 
@@ -2050,6 +2290,7 @@ export default function App() {
               onSelectAsset={setSelectedAsset}
               traderProfile={traderProfile}
               isAdminMode={userRole === 'admin'}
+              currentUser={currentUser}
             />
           )}
 
@@ -2059,6 +2300,7 @@ export default function App() {
               selectedAsset={selectedAsset}
               onSelectAsset={setSelectedAsset}
               traderProfile={traderProfile}
+              onNavigateToSection={(sec: any) => setCurrentSection(sec)}
             />
           )}
 
@@ -2067,6 +2309,7 @@ export default function App() {
               allAssets={assets}
               selectedAsset={selectedAsset}
               onSelectAsset={setSelectedAsset}
+              currentUser={currentUser}
             />
           )}
 
@@ -2315,6 +2558,17 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating Quick Order Execution Dock */}
+      {isQuickDockEnabled && (
+        <QuickOrderDock
+          selectedAsset={selectedAsset}
+          onNavigateToSection={(sec) => setCurrentSection(sec)}
+          isOpen={quickDockOpen}
+          onToggle={() => setQuickDockOpen(prev => !prev)}
+          currentUser={currentUser}
+        />
       )}
 
       {/* Floating Personal Coaching Mentor Chat Widget */}

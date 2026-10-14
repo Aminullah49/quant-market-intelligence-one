@@ -290,32 +290,40 @@ export default function AuthGate({ onLoginSuccess, registeredAccounts, onRegiste
 
                 {/* Preseeded Demo Users */}
                 <div className="border-t border-slate-850/60 pt-4 mt-4 space-y-2">
-                  <div className="text-[9px] text-slate-500 font-mono uppercase tracking-wider text-center">Demo Quick Launch (passcode: password123)</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickDemoLogin("ahmad")}
-                      className="text-[10px] bg-slate-950/80 border border-slate-850 hover:border-blue-500/40 text-blue-400 hover:text-blue-300 font-mono p-1.5 rounded-lg flex flex-col items-center justify-center transition-all cursor-pointer"
-                    >
-                      <span className="font-bold">Ahmad</span>
-                      <span className="text-[8px] text-slate-500">Day Trader</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickDemoLogin("sarah")}
-                      className="text-[10px] bg-slate-950/80 border border-slate-850 hover:border-emerald-500/40 text-emerald-400 hover:text-emerald-300 font-mono p-1.5 rounded-lg flex flex-col items-center justify-center transition-all cursor-pointer"
-                    >
-                      <span className="font-bold">Sarah</span>
-                      <span className="text-[8px] text-slate-500">Scalper</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickDemoLogin("marcus")}
-                      className="text-[10px] bg-slate-950/80 border border-slate-850 hover:border-indigo-500/40 text-indigo-400 hover:text-indigo-300 font-mono p-1.5 rounded-lg flex flex-col items-center justify-center transition-all cursor-pointer"
-                    >
-                      <span className="font-bold">Marcus</span>
-                      <span className="text-[8px] text-slate-500">Position</span>
-                    </button>
+                  <div className="text-[9px] text-slate-500 font-mono uppercase tracking-wider text-center flex items-center justify-center gap-1.5">
+                    <span>Trader Account Direct Launch</span>
+                    <span className="text-emerald-400 font-bold">(Auto-Routes to User's Broker)</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {registeredAccounts.map((acc) => {
+                      const brokerTag = 
+                        acc.username === "aminu" ? "Interactive Brokers" :
+                        acc.username === "sarah" ? "Binance Prime" :
+                        acc.username === "marcus" ? "Alpaca Stocks" :
+                        acc.username === "ahmad" ? "OANDA Forex" : "Connected Broker";
+                      
+                      const colorClass = 
+                        acc.username === "aminu" ? "border-blue-500/40 text-blue-400 hover:border-blue-400" :
+                        acc.username === "sarah" ? "border-emerald-500/40 text-emerald-400 hover:border-emerald-400" :
+                        acc.username === "marcus" ? "border-indigo-500/40 text-indigo-400 hover:border-indigo-400" :
+                        "border-amber-500/40 text-amber-400 hover:border-amber-400";
+
+                      return (
+                        <button
+                          key={acc.id || acc.username}
+                          type="button"
+                          onClick={() => handleQuickDemoLogin(acc.username)}
+                          className={`text-[10px] bg-slate-950/80 border ${colorClass} font-mono p-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer shadow-sm hover:scale-[1.02]`}
+                          title={`Sign in as ${acc.displayName} (${acc.email}) - Auto-routes to ${brokerTag}`}
+                        >
+                          <span className="font-extrabold text-white text-[11px]">{acc.displayName}</span>
+                          <span className="text-[8px] text-slate-400">{acc.profile?.style || "Trader"}</span>
+                          <span className="text-[7.5px] font-black uppercase text-emerald-400 bg-emerald-950/60 px-1 py-0.2 rounded mt-1 border border-emerald-800/40 truncate max-w-full">
+                            {brokerTag}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </form>

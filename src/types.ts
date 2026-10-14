@@ -1,6 +1,8 @@
 export type SectionType =
   | 'dashboard'
   | 'chartai'
+  | 'news'
+  | 'shield'
   | 'checklist'
   | 'analysis'
   | 'setup'

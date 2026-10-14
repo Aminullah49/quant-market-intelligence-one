@@ -8,8 +8,9 @@ import {
   Camera, Maximize2, Settings, Type, Square, Ruler, Lock, Trash2, 
   Clock, Calendar, Coins, Flame, Info, CheckCircle2, AlertTriangle, HelpCircle,
   X, Search, Filter, Copy, Check, Sliders, Globe, ChevronRight, Loader2, AlertCircle,
-  Zap, CheckCircle
+  Zap, CheckCircle, Radio
 } from "lucide-react";
+import { getAssetMacroImpact, getNewsForAsset, reconcileTechnicalAndFundamental } from "../utils/marketNews";
 
 interface ChartAIProps {
   selectedAsset: MarketAsset;
@@ -1990,6 +1991,54 @@ export default function ChartAI({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* AUTO-MERGED LIVE MACRO NEWS & CATALYST WIRE */}
+      <div className="bg-gradient-to-r from-slate-900 via-cyan-950/20 to-slate-900 border border-cyan-500/30 rounded-2xl p-4 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-3 font-mono">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-xl shrink-0">
+            <Radio className="h-5 w-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-[10px] text-cyan-400 font-black uppercase tracking-wider">
+                AUTO-MERGED MACRO CATALYST:
+              </span>
+              <span className={`px-2 py-0.2 rounded text-[9px] font-black uppercase ${
+                getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "CRITICAL" ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" :
+                getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "ELEVATED" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" :
+                "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+              }`}>
+                {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk} SHOCK RISK
+              </span>
+            </div>
+            <div className="text-xs text-white font-bold truncate max-w-xl">
+              {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}
+            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              <strong className="text-amber-400">Institutional Buffer:</strong> {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).volatilityBufferRecommendation}
+            </div>
+          </div>
+        </div>
+
+        {onNavigateToSection && (
+          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+            <button
+              onClick={() => onNavigateToSection('news')}
+              className="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              <span>Full Wire</span>
+            </button>
+            <button
+              onClick={() => onNavigateToSection('shield')}
+              className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              <span>Volatility Shield</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 5. DYNAMIC OUTPUTS */}

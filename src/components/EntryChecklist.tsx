@@ -31,8 +31,11 @@ import {
   Target,
   ShieldAlert,
   CheckCircle,
-  Loader2
+  Loader2,
+  Radio,
+  Globe
 } from "lucide-react";
+import { getAssetMacroImpact, reconcileTechnicalAndFundamental } from "../utils/marketNews";
 import {
   SUPPORTED_CURRENCIES,
   getStoredCurrency,
@@ -42,6 +45,11 @@ import {
   calculateTradePnL,
   CurrencyConfig
 } from "../utils/currencyAndPips";
+import { 
+  getActivePrimaryBroker, 
+  executeDirectBrokerOrder, 
+  UnifiedBroker 
+} from "../utils/brokerSync";
 
 interface EntryChecklistProps {
   selectedAsset: MarketAsset;
@@ -178,6 +186,30 @@ const DEFAULT_CHECKLIST: Omit<ChecklistItem, "isChecked">[] = [
     description: "Dollar Index (DXY) movement or correlated assets (e.g., Yields, S&P 500) support trade direction.",
     weight: 10,
     requiredForStyles: ["Swing Trading", "Position Trading"]
+  },
+  {
+    id: "macro_catalyst_shield",
+    category: "Macro",
+    label: "Macro Catalyst & Geopolitical Shield (UN / FOMC / Summits)",
+    description: "Verified no major UN summits, emergency central bank speeches, or geopolitical escalations actively destabilizing liquidity.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "overbought_exhaustion_shield",
+    category: "Momentum",
+    label: "Overbought Peak & Exhaustion Shield (RSI < 75 & No Bearish Divergence)",
+    description: "Asset is not stretched at extreme all-time highs with overbought daily RSI or bearish divergence that triggers institutional profit-taking selloffs.",
+    weight: 15,
+    requiredForStyles: ["Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "breakeven_scaleout_rule",
+    category: "Risk",
+    label: "Pre-Committed Breakeven (+1R) & 50% Scale-Out Exit Plan",
+    description: "Committed to moving Stop Loss to Breakeven at +1R profit and taking 50% partials at major resistance to eliminate sudden drop risk.",
+    weight: 10,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
   }
 ];
 
@@ -368,10 +400,14 @@ export default function EntryChecklist({
     }));
   }, [assets.map(a => a.symbol).join(",")]);
 
-  // Quant Engine Market Direction Bias
-  const isQuantBullish = selectedAsset.bullishProb >= selectedAsset.bearishProb;
+  // Quant Engine Market Direction Bias with Multi-Factor Macro News Reconciliation
+  const reconciledVerdict = useMemo(() => {
+    return reconcileTechnicalAndFundamental(selectedAsset);
+  }, [selectedAsset]);
+
+  const isQuantBullish = reconciledVerdict.finalAction === "BUY";
   const aiRecommendedDirection: "BUY" | "SELL" = isQuantBullish ? "BUY" : "SELL";
-  const aiBiasProbPct = Math.round((isQuantBullish ? selectedAsset.bullishProb : selectedAsset.bearishProb) * 100);
+  const aiBiasProbPct = reconciledVerdict.reconciledScore;
 
   // Currency & Sizing state
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyConfig>(getStoredCurrency());
@@ -387,6 +423,7 @@ export default function EntryChecklist({
   const [copiedPlan, setCopiedPlan] = useState(false);
   const [loggedJournal, setLoggedJournal] = useState(false);
   const [isPlacingDirectOrder, setIsPlacingDirectOrder] = useState(false);
+  const [activeBroker, setActiveBroker] = useState<UnifiedBroker>(() => getActivePrimaryBroker());
   const [directOrderReceipt, setDirectOrderReceipt] = useState<{
     id: string;
     market: string;
@@ -397,6 +434,21 @@ export default function EntryChecklist({
     tp1: number;
     broker: string;
   } | null>(null);
+
+  useEffect(() => {
+    const syncBroker = () => {
+      setActiveBroker(getActivePrimaryBroker());
+    };
+    syncBroker();
+    window.addEventListener("primary_broker_changed", syncBroker);
+    window.addEventListener("broker_connected", syncBroker);
+    window.addEventListener("storage", syncBroker);
+    return () => {
+      window.removeEventListener("primary_broker_changed", syncBroker);
+      window.removeEventListener("broker_connected", syncBroker);
+      window.removeEventListener("storage", syncBroker);
+    };
+  }, []);
 
   const handleCurrencyChange = (code: string) => {
     const found = SUPPORTED_CURRENCIES.find((c) => c.code === code);
@@ -604,38 +656,21 @@ export default function EntryChecklist({
     setIsPlacingDirectOrder(true);
     setDirectOrderReceipt(null);
 
-    const ticketId = `CHK-STP-${Math.floor(100000 + Math.random() * 900000)}`;
-    const brokerName = "AI QUANT PRIME DESK";
-
     setTimeout(() => {
       setIsPlacingDirectOrder(false);
 
-      // Save to position store for broker & paper trading
-      try {
-        const positionsRaw = localStorage.getItem("paper_trading_positions_v1");
-        const openPositions = positionsRaw ? JSON.parse(positionsRaw) : [];
-        const newPosition = {
-          id: `pos_${Date.now()}`,
-          symbol: selectedAsset.symbol,
-          type: intendedDirection,
-          entryPrice: stylePlan.entryPrice,
-          currentPrice: stylePlan.entryPrice,
-          size: lotSize,
-          leverage: 100,
-          stopLoss: stylePlan.stopLoss,
-          takeProfit: stylePlan.takeProfit1,
-          pnl: 0,
-          timestamp: new Date().toISOString(),
-          status: "OPEN",
-          brokerId: "quantintel-stp",
-          notes: `Checklist Verified Trade (${scoreCalculation.score}% Confluence) Ticket #${ticketId}`
-        };
-        localStorage.setItem("paper_trading_positions_v1", JSON.stringify([newPosition, ...openPositions]));
-      } catch (e) {
-        console.error("Direct order position sync failed:", e);
-      }
+      const receipt = executeDirectBrokerOrder({
+        symbol: selectedAsset.symbol,
+        side: intendedDirection,
+        price: stylePlan.entryPrice,
+        lotSize,
+        stopLoss: stylePlan.stopLoss,
+        takeProfit: stylePlan.takeProfit1,
+        category: selectedAsset.category,
+        sourceModule: `Entry Checklist (${activeStyle}, ${scoreCalculation.score}% Score)`
+      });
 
-      // Also log automatically to journal
+      // Also log to journal if prop provided
       if (onAddJournalEntry) {
         const newJournal: JournalEntry = {
           id: `j_${Date.now()}`,
@@ -648,22 +683,22 @@ export default function EntryChecklist({
           profit: tp1PnL ? tp1PnL.pnlAmountCurrency : 0,
           emotion: "Disciplined",
           mistake: "None",
-          notes: `Direct STP Order Placed via Entry Checklist (${scoreCalculation.score}% Score). Ticket #${ticketId}. Entry: $${stylePlan.entryPrice}, SL: $${stylePlan.stopLoss}, TP1: $${stylePlan.takeProfit1}. Sized at ${lotSize} Lots.`
+          notes: `Direct STP Order Placed via Entry Checklist (${scoreCalculation.score}% Score). Ticket #${receipt.ticketId}. Broker: ${receipt.brokerName} (${receipt.accountNo}). Entry: $${stylePlan.entryPrice}, SL: $${stylePlan.stopLoss}, TP1: $${stylePlan.takeProfit1}. Sized at ${lotSize} Lots.`
         };
         onAddJournalEntry(newJournal);
       }
 
       setDirectOrderReceipt({
-        id: ticketId,
+        id: receipt.ticketId,
         market: selectedAsset.symbol,
         direction: intendedDirection,
-        price: stylePlan.entryPrice,
-        lots: lotSize,
-        sl: stylePlan.stopLoss,
-        tp1: stylePlan.takeProfit1,
-        broker: brokerName
+        price: receipt.price,
+        lots: receipt.lotSize,
+        sl: receipt.stopLoss,
+        tp1: receipt.takeProfit,
+        broker: `${receipt.brokerName} (${receipt.accountNo})`
       });
-    }, 1500);
+    }, 1100);
   };
 
   return (
@@ -818,6 +853,59 @@ export default function EntryChecklist({
           <div className="flex items-center gap-2 px-3.5 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl shrink-0">
             <Check className="h-4 w-4 stroke-[3]" />
             <span>Checklist Aligned with {aiRecommendedDirection} Market Bias</span>
+          </div>
+        )}
+      </div>
+
+      {/* AUTO-MERGED LIVE MACRO NEWS & CATALYST WIRE CARD */}
+      <div className="bg-gradient-to-r from-slate-900 via-cyan-950/20 to-slate-900 border border-cyan-500/30 rounded-2xl p-4.5 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-xl shrink-0">
+            <Radio className="h-5 w-5 animate-pulse" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-cyan-400 font-black uppercase tracking-wider">
+                AUTO-MERGED MACRO CATALYST:
+              </span>
+              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "CRITICAL" ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" :
+                getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk === "ELEVATED" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" :
+                "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+              }`}>
+                {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk} MACRO RISK
+              </span>
+              {reconciledVerdict.confluenceType.includes("DIVERGENCE") && (
+                <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  DIVERGENCE RESOLVED
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-white font-bold leading-snug">
+              {getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+              {reconciledVerdict.divergenceResolutionNote}
+            </p>
+          </div>
+        </div>
+
+        {onNavigateToSection && (
+          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+            <button
+              onClick={() => onNavigateToSection('news')}
+              className="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              <span>News Wire</span>
+            </button>
+            <button
+              onClick={() => onNavigateToSection('shield')}
+              className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              <span>Loss Shield</span>
+            </button>
           </div>
         )}
       </div>

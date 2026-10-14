@@ -6,5 +6,7 @@
   "firestoreDatabaseId": "ai-studio-quantmarketintel-177b814f-20e1-4ffc-8d12-a9162c0d7e9a",
   "storageBucket": "seraphic-bit-3dckx.firebasestorage.app",
   "messagingSenderId": "665157640948",
-  "measurementId": ""
+  "measurementId": "",
+  "oAuthClientId": "665157640948-tf8ecv8bbdno7rsi64c7h0cvsl0etqne.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

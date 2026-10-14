@@ -47,12 +47,130 @@
         }
       },
       "required": ["title", "category", "impact", "effort", "status", "description", "assignedTo"]
+    },
+    "userBrokerProfile": {
+      "title": "User Broker Profile",
+      "description": "User specific connected broker configuration, active broker, and account balance",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The user ID"
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "The user email"
+        },
+        "primaryBrokerId": {
+          "type": "string",
+          "description": "The ID of the user's primary selected broker"
+        },
+        "primaryBrokerName": {
+          "type": "string",
+          "description": "The name of the user's primary selected broker"
+        },
+        "primaryAccountNo": {
+          "type": "string",
+          "description": "The user's broker account number"
+        },
+        "balance": {
+          "type": "number",
+          "description": "Current cash balance on connected broker"
+        },
+        "equity": {
+          "type": "number",
+          "description": "Current total equity on connected broker"
+        },
+        "connectedBrokersJson": {
+          "type": "string",
+          "description": "JSON serialized array of user's connected brokers"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["userId", "primaryBrokerId", "primaryBrokerName", "primaryAccountNo", "balance", "equity", "updatedAt"]
+    },
+    "userBrokerTrade": {
+      "title": "User Broker Trade",
+      "description": "A live trade order executed to the user's connected broker",
+      "type": "object",
+      "properties": {
+        "ticketId": {
+          "type": "string",
+          "description": "Unique broker execution ticket ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The user ID who executed the trade"
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "The user email"
+        },
+        "brokerId": {
+          "type": "string",
+          "description": "Connected broker ID"
+        },
+        "brokerName": {
+          "type": "string",
+          "description": "Connected broker name"
+        },
+        "accountNo": {
+          "type": "string",
+          "description": "Connected broker account number"
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Traded asset ticker symbol"
+        },
+        "side": {
+          "type": "string",
+          "enum": ["BUY", "SELL"],
+          "description": "Order direction"
+        },
+        "price": {
+          "type": "number",
+          "description": "Execution entry price"
+        },
+        "lotSize": {
+          "type": "number",
+          "description": "Position lot volume"
+        },
+        "stopLoss": {
+          "type": "number",
+          "description": "Stop loss price"
+        },
+        "takeProfit": {
+          "type": "number",
+          "description": "Take profit price"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["OPEN", "CLOSED", "CANCELLED"],
+          "description": "Order status"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Execution timestamp string"
+        }
+      },
+      "required": ["ticketId", "userId", "brokerId", "brokerName", "accountNo", "symbol", "side", "price", "lotSize", "stopLoss", "takeProfit", "status", "timestamp"]
     }
   },
   "firestore": {
     "/recommendations/{recommendationId}": {
       "schema": "recommendation",
       "description": "Global platform recommendations and action plans managed by administrators"
+    },
+    "/user_brokers/{userId}": {
+      "schema": "userBrokerProfile",
+      "description": "User specific connected broker configuration and execution target"
+    },
+    "/user_trades/{tradeId}": {
+      "schema": "userBrokerTrade",
+      "description": "Live trade orders routed to the user's connected broker"
     }
   }
 }

@@ -14,11 +14,22 @@ import {
   calculateTradePnL, 
   CurrencyConfig 
 } from "../utils/currencyAndPips";
+import { 
+  getActivePrimaryBroker, 
+  setActivePrimaryBroker, 
+  getConnectedBrokersList,
+  getCurrentUser,
+  executeDirectBrokerOrder,
+  executeMasterToSlaveTradeCopy,
+  getUniversalCopierConfig,
+  UnifiedBroker 
+} from "../utils/brokerSync";
 
 interface PaperTradingProps {
   allAssets: MarketAsset[];
   selectedAsset: MarketAsset;
   onSelectAsset: (asset: MarketAsset) => void;
+  currentUser?: any;
 }
 
 export interface PaperAccount {
@@ -53,8 +64,10 @@ export interface PaperPosition {
   brokerTicket?: string;
 }
 
-export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }: PaperTradingProps) {
+export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset, currentUser: propUser }: PaperTradingProps) {
   const [currentUser, setCurrentUser] = useState(auth.currentUser);
+  const effectiveUser = propUser || getCurrentUser();
+  const userId = effectiveUser?.id || "guest_trader";
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyConfig>(() => getStoredCurrency());
 
   useEffect(() => {
@@ -88,18 +101,25 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }
 
   // Account Environment Mode: DEMO (for risk-free sandbox practice) or LIVE (for executing real orders on broker account)
   const [accountMode, setAccountMode] = useState<"demo" | "live">(() => {
-    const saved = localStorage.getItem("paper_trading_account_mode_v1");
-    return (saved as "demo" | "live") || "demo";
+    const saved = localStorage.getItem(`paper_trading_account_mode_${userId}`) || localStorage.getItem("paper_trading_account_mode_v1");
+    if (saved) return saved as "demo" | "live";
+    const activeList = getConnectedBrokersList(userId);
+    return activeList.some(b => b.connected) ? "live" : "demo";
   });
 
   // Advanced Routing and Execution state variables
   const [executionMode, setExecutionMode] = useState<"MARKET" | "PENDING">("MARKET");
   const [pendingOrderType, setPendingOrderType] = useState<"BUY_LIMIT" | "BUY_STOP" | "SELL_LIMIT" | "SELL_STOP">("BUY_LIMIT");
   const [triggerPrice, setTriggerPrice] = useState<string>("");
-  const [selectedBrokerId, setSelectedBrokerId] = useState<string>("simulation");
-  const [connectedBrokers, setConnectedBrokers] = useState<any[]>([]);
+  const [selectedBrokerId, setSelectedBrokerId] = useState<string>(() => {
+    const primary = getActivePrimaryBroker(userId);
+    return primary ? primary.id : "simulation";
+  });
+  const [connectedBrokers, setConnectedBrokers] = useState<UnifiedBroker[]>(() => {
+    return getConnectedBrokersList(userId);
+  });
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
-    `[${new Date().toLocaleTimeString()}] ℹ️ Secure Trade Routing Gateway online. Ready for API dispatch.`
+    `[${new Date().toLocaleTimeString()}] ℹ️ Secure Trade Routing Gateway online for ${effectiveUser?.displayName || "Trader"}. Ready for API dispatch.`
   ]);
   const [pendingOrders, setPendingOrders] = useState<PaperPosition[]>([]);
 
@@ -112,24 +132,35 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }
     setTerminalLogs(prev => [`[${timestamp}] ${prefix} ${message}`, ...prev].slice(0, 40));
   };
 
-  // Sync connected brokers on load and on interval to react instantly to user connection on the Brokers tab
+  // Sync connected brokers and primary broker on load and on events
   useEffect(() => {
-    const loadConnectedBrokers = () => {
-      const saved = localStorage.getItem("connected_brokers_list");
-      if (saved) {
-        try {
-          const list = JSON.parse(saved);
-          const activeOnes = list.filter((b: any) => b.connected);
-          setConnectedBrokers(activeOnes);
-        } catch (e) {
-          console.error(e);
+    const syncPrimaryBroker = () => {
+      const activeList = getConnectedBrokersList(userId);
+      setConnectedBrokers(activeList);
+      const primary = getActivePrimaryBroker(userId);
+      if (primary && primary.id) {
+        setSelectedBrokerId(primary.id);
+        if (activeList.some(b => b.connected)) {
+          setAccountMode("live");
+          localStorage.setItem(`paper_trading_account_mode_${userId}`, "live");
+          localStorage.setItem("paper_trading_account_mode_v1", "live");
+          addTerminalLog(`⚡ Auto-Routing Target switched to ${primary.name} (Account #${primary.accountNo || "Direct"}) for ${effectiveUser?.displayName || "your account"}. All trade executions are now directed here.`, "success");
         }
       }
     };
-    loadConnectedBrokers();
-    const interval = setInterval(loadConnectedBrokers, 2500);
-    return () => clearInterval(interval);
-  }, []);
+
+    syncPrimaryBroker();
+    window.addEventListener("primary_broker_changed", syncPrimaryBroker);
+    window.addEventListener("broker_connected", syncPrimaryBroker);
+    window.addEventListener("storage", syncPrimaryBroker);
+    const interval = setInterval(syncPrimaryBroker, 3000);
+    return () => {
+      window.removeEventListener("primary_broker_changed", syncPrimaryBroker);
+      window.removeEventListener("broker_connected", syncPrimaryBroker);
+      window.removeEventListener("storage", syncPrimaryBroker);
+      clearInterval(interval);
+    };
+  }, [userId]);
 
   // Sync auth state
   useEffect(() => {
@@ -619,7 +650,8 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }
 
       // Update connected broker balance in local storage if a real broker is routed
       if (isBrokerRouted) {
-        const saved = localStorage.getItem("connected_brokers_list");
+        const brokersKey = `user_connected_brokers_${userId}`;
+        const saved = localStorage.getItem(brokersKey) || localStorage.getItem("connected_brokers_list");
         if (saved) {
           try {
             const list = JSON.parse(saved);
@@ -627,7 +659,7 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }
               if (b.id === selectedBrokerId) {
                 const currentBal = b.balance || 0;
                 // Only deduct margin instantly if it is an immediate market order
-                const nextBal = executionMode === "PENDING" ? currentBal : (currentBal - requiredMargin);
+                const nextBal = executionMode === "PENDING" ? currentBal : Math.max(0, currentBal - requiredMargin);
                 return {
                   ...b,
                   balance: Number(nextBal.toFixed(2)),
@@ -636,15 +668,121 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }
               }
               return b;
             });
+            localStorage.setItem(brokersKey, JSON.stringify(updatedList));
             localStorage.setItem("connected_brokers_list", JSON.stringify(updatedList));
           } catch (e) {
             console.error(e);
           }
         }
-        addTerminalLog(`API Success! Trade successfully synchronized. Broker Ticket: #${ticketId}`, "success");
+        // 3. Record in Institutional Trade Journal
+        try {
+          const jRaw = localStorage.getItem("ai_quant_journal_entries");
+          const jList = jRaw ? JSON.parse(jRaw) : [];
+          const isForex = selectedAsset.symbol.includes("/");
+          const pips = Math.round(Math.abs(entryPrice - slNum) * (isForex ? 10000 : 100));
+          const journalEntry = {
+            id: `j_broker_${Date.now()}`,
+            date: new Date().toLocaleDateString(),
+            time: new Date().toLocaleTimeString(),
+            market: selectedAsset.symbol,
+            asset: selectedAsset.symbol,
+            type: newPos.type,
+            direction: newPos.type,
+            entryPrice: entryPrice,
+            exitPrice: tpNum,
+            stopLoss: slNum,
+            takeProfit: tpNum,
+            pips,
+            profit: 0,
+            status: "OPEN",
+            outcome: "PENDING",
+            emotion: "Disciplined",
+            mistake: "None",
+            userId,
+            userName: effectiveUser?.displayName || "Trader",
+            brokerName,
+            accountNo: activeBroker.accountNo,
+            notes: `[AUTO-ROUTED TO ${brokerName.toUpperCase()}] Trader: ${effectiveUser?.displayName || "Trader"}. Ticket #${ticketId}. Direct API Account #${activeBroker.accountNo || "Direct"}. Mode: ${executionMode}.`
+          };
+          jList.unshift(journalEntry);
+          localStorage.setItem("ai_quant_journal_entries", JSON.stringify(jList));
+          
+          // User scoped journal
+          const userJKey = `ai_quant_journal_entries_${userId}`;
+          const userJRaw = localStorage.getItem(userJKey);
+          const userJList = userJRaw ? JSON.parse(userJRaw) : [];
+          userJList.unshift(journalEntry);
+          localStorage.setItem(userJKey, JSON.stringify(userJList));
+
+          window.dispatchEvent(new Event("journal_updated"));
+        } catch (e) {
+          console.error("Failed to save journal:", e);
+        }
+
+        // Persist to Firestore user_trades
+        try {
+          const tradeDocRef = doc(db, "user_trades", ticketId);
+          setDoc(tradeDocRef, {
+            ticketId,
+            userId,
+            userEmail: effectiveUser?.email || "trader@aiquant.com",
+            brokerId: activeBroker.id,
+            brokerName: activeBroker.name,
+            accountNo: activeBroker.accountNo || "Direct-API",
+            symbol: selectedAsset.symbol,
+            side: newPos.type,
+            price: entryPrice,
+            lotSize: lotSize,
+            stopLoss: slNum,
+            takeProfit: tpNum,
+            status: "OPEN",
+            timestamp: new Date().toISOString()
+          }).catch(err => console.warn("Firestore trade save warning:", err));
+        } catch (e) {
+          console.warn("Firestore error:", e);
+        }
+
+        window.dispatchEvent(new Event("broker_trade_executed"));
+        window.dispatchEvent(new Event("paper_trades_updated"));
+        window.dispatchEvent(new Event("storage"));
+
+        addTerminalLog(`API Success! Trade for ${effectiveUser?.displayName || "your account"} successfully synchronized to ${brokerName}. Broker Ticket: #${ticketId}`, "success");
         triggerNotification(`${executionMode === "PENDING" ? "Pending order set" : "Market order executed"} automatically on your connected account at ${brokerName}!`, "success");
       } else {
         triggerNotification(`${executionMode === "PENDING" ? "Pending order set" : `${orderType} order filled`} successfully for ${lotSize} Lots ${selectedAsset.symbol}!`, "success");
+      }
+
+      // Universal Master-to-Slave Trade Copier: Mirror to slave brokers if enabled
+      try {
+        const copier = getUniversalCopierConfig(effectiveUser?.id);
+        const isMasterMatch = copier.enabled && (
+          copier.masterBrokerId === "paper" || 
+          (accountMode === "live" && copier.masterBrokerId === activeBroker.id) ||
+          (accountMode === "demo" && (copier.masterBrokerId === "paper" || !copier.masterBrokerId))
+        );
+
+        if (isMasterMatch && executionMode === "MARKET") {
+          const masterBrokerObj = accountMode === "live" 
+            ? activeBroker 
+            : ({ id: "paper", name: "Paper Trading Master Desk", balance: account.balance, connected: true } as any);
+
+          const copyRes = executeMasterToSlaveTradeCopy({
+            symbol: selectedAsset.symbol,
+            side: newPos.type,
+            lotSize: lotSize,
+            price: entryPrice,
+            stopLoss: slNum,
+            takeProfit: tpNum,
+            sourceModule: accountMode === "demo" ? "Master Paper Trading" : `Master Broker (${brokerName})`
+          }, masterBrokerObj, undefined, effectiveUser?.id);
+
+          if (copyRes.copiedCount > 0) {
+            addTerminalLog(`[Universal Copier] Mirrored ${lotSize} Lots to ${copyRes.copiedCount} slave broker accounts with equity scaling & 1% risk cap.`, "info");
+            triggerNotification(`Trade mirrored to ${copyRes.copiedCount} slave accounts with strict 1% risk limit.`, "success");
+          }
+        }
+      } catch (copierErr) {
+        console.warn("Universal trade copier sync error:", copierErr);
       }
 
       // Reset Pending Trigger Input
@@ -1159,40 +1297,54 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset }
 
           {/* Broker Auto-Routing Selector */}
           <div className="space-y-1.5">
-            <label className="text-[10px] font-mono text-slate-500 uppercase block">Execution Target Account</label>
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-mono text-slate-500 uppercase block font-bold">Execution Target Account</label>
+              {accountMode === "live" && connectedBrokers.length > 0 && (
+                <span className="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Auto-Routing Active
+                </span>
+              )}
+            </div>
             <select
               value={selectedBrokerId}
-              onChange={(e) => setSelectedBrokerId(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-blue-500"
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedBrokerId(val);
+                if (val !== "simulation") {
+                  const bObj = connectedBrokers.find(b => b.id === val);
+                  setAccountMode("live");
+                  localStorage.setItem(`paper_trading_account_mode_${userId}`, "live");
+                  localStorage.setItem("paper_trading_account_mode_v1", "live");
+                  setActivePrimaryBroker(val, bObj?.name, userId);
+                  addTerminalLog(`⚡ Direct Execution Broker for ${effectiveUser?.displayName || "your account"} set to ${bObj?.name || val} (${bObj?.accountNo || 'Direct'}). All executions auto-route here.`, "success");
+                  triggerNotification(`Auto-routing switched to ${bObj?.name || val}! Live orders will send directly to this account.`, "success");
+                }
+              }}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-blue-500 cursor-pointer"
             >
-              {accountMode === "demo" ? (
-                <>
-                  <option value="simulation">💻 QuantIntel Demo Sandbox (Simulation)</option>
-                  <option disabled value="broker-locked">🔒 Live Brokers require Live Mode (Switch Above)</option>
-                </>
-              ) : (
-                <>
-                  {connectedBrokers.length === 0 ? (
-                    <option value="simulation">⚠️ No Connected Live Broker Accounts Found</option>
-                  ) : (
-                    connectedBrokers.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        ⚡ LIVE: {b.name} ({b.accountNo || "Direct API"})
-                      </option>
-                    ))
-                  )}
-                </>
+              {connectedBrokers.length > 0 && (
+                <optgroup label="Connected Live Brokers (Direct STP Routing)">
+                  {connectedBrokers.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      ⚡ LIVE DIRECT: {b.name} ({b.accountNo || "Direct API"})
+                    </option>
+                  ))}
+                </optgroup>
               )}
+              <optgroup label="Simulated Sandbox">
+                <option value="simulation">💻 QuantIntel Demo Sandbox (Simulation)</option>
+              </optgroup>
             </select>
             {accountMode === "live" ? (
               connectedBrokers.length > 0 ? (
-                <div className="flex items-center gap-1.5 text-[9px] font-mono text-rose-400 mt-1.5 bg-rose-950/20 px-2 py-1 border border-rose-900/30 rounded">
-                  <span className="h-1.5 w-1.5 bg-rose-500 rounded-full shrink-0 animate-pulse" />
-                  <span>Real-time API Trade Routing is LIVE to {connectedBrokers.find(b => b.id === selectedBrokerId)?.name || connectedBrokers[0].name}. Use Caution!</span>
+                <div className="flex items-center gap-1.5 text-[9px] font-mono text-emerald-400 mt-1.5 bg-emerald-950/20 px-2 py-1.5 border border-emerald-900/30 rounded-lg">
+                  <span className="h-2 w-2 bg-emerald-500 rounded-full shrink-0 animate-pulse" />
+                  <span>Real-time Direct Broker API is linked to <strong>{connectedBrokers.find(b => b.id === selectedBrokerId)?.name || connectedBrokers[0].name}</strong>. Orders execute directly into this broker account.</span>
                 </div>
               ) : (
                 <div className="text-[9px] text-amber-400 font-mono mt-1.5 bg-amber-950/20 px-2.5 py-1.5 border border-amber-900/30 rounded-lg leading-normal">
-                  ⚠️ <strong>Live Order Execution Locked:</strong> You have not connected an active real broker. Please contact support or configure API credentials in Settings.
+                  ⚠️ <strong>Live Order Execution Locked:</strong> You have not connected an active real broker yet. Connect a broker under the Brokers tab to enable automatic direct execution.
                 </div>
               )
             ) : (

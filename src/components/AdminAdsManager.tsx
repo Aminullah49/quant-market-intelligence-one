@@ -120,6 +120,19 @@ const PRESET_SCRIPTS: CustomScript[] = [
 
 const PRESET_ADS: AdCampaign[] = [
   {
+    id: "fundednext-prop",
+    title: "FUNDEDNEXT: TRADE UP TO $300,000 CAPITAL",
+    description: "Earn 15% profit sharing during evaluation! No time limits on Stellar challenge, 90% profit splits, and direct MT5/cTrader bridge sync.",
+    imageUrl: "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?auto=format&fit=crop&w=800&q=80",
+    linkUrl: "https://fundednext.com",
+    type: "banner",
+    provider: "custom",
+    isActive: true,
+    targetPlan: "explorer",
+    impressions: 1680,
+    clicks: 245
+  },
+  {
     id: "apex-funding",
     title: "APEX TRADER FUNDING: 90% OFF SALE!",
     description: "Get funded up to $300,000. Low evaluation targets, direct payouts, and compatible with our broker connectors.",

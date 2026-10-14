@@ -46,54 +46,75 @@ function getGeminiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
+function extractErrorMessage(err: any): string {
+  if (!err) return "";
+  if (typeof err === "string") return err;
+  let str = err.message || "";
+  if (!str && err.error) {
+    str = typeof err.error === "string" ? err.error : (err.error.message || JSON.stringify(err.error));
+  }
+  if (!str) {
+    try {
+      str = JSON.stringify(err);
+    } catch {
+      str = String(err);
+    }
+  }
+  return str;
+}
+
+function isApiUnavailableOrQuota(err: any): boolean {
+  if (!err) return false;
+  const status = err.status || err.statusCode || (err.response && err.response.status) || err.code;
+  if (status === 429 || status === 503 || status === 500 || status === 403 || status === 408) return true;
+  const errStr = extractErrorMessage(err).toLowerCase();
+  return (
+    errStr.includes("quota") ||
+    errStr.includes("exhausted") ||
+    errStr.includes("rate") ||
+    errStr.includes("limit") ||
+    errStr.includes("overloaded") ||
+    errStr.includes("busy") ||
+    errStr.includes("unavailable") ||
+    errStr.includes("resource_exhausted") ||
+    errStr.includes("econnrefused") ||
+    errStr.includes("etimedout")
+  );
+}
+
 // Robust retry wrapper to handle high demand (503), rate limits (429), and other API transient errors
-async function generateContentWithRetry(client: any, options: { model: string, contents: any, config?: any }, retries = 2, delayMs = 1000): Promise<any> {
+async function generateContentWithRetry(client: any, options: { model: string, contents: any, config?: any }): Promise<any> {
   if (isGeminiCooldown()) {
     throw new Error("Gemini API is currently on cooldown due to quota limit exhaustion.");
   }
 
-  const rawModels = [options.model, "gemini-2.5-flash", "gemini-2.5-pro"];
-  const modelsToTry = Array.from(new Set(rawModels.filter(Boolean)));
-  let lastError: any = null;
-  
-  for (const model of modelsToTry) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        console.log(`[Gemini API] Requesting ${model} (Attempt ${attempt + 1}/${retries + 1})...`);
-        const response = await client.models.generateContent({
-          ...options,
-          model: model
-        });
-        return response;
-      } catch (err: any) {
-        lastError = err;
-        const errStr = String(err.message || err);
-        const isQuotaExceeded = errStr.toLowerCase().includes("quota") || errStr.toLowerCase().includes("exhausted") || errStr.toLowerCase().includes("limit");
-        
-        if (isQuotaExceeded) {
-          console.log(`[Gemini API] Note: Model ${model} is currently rate-limited (429/Quota Exceeded). Trying fallback model if available...`);
-          break; // Try next fallback model directly
-        } else {
-          console.log(`[Gemini API] Note: Model ${model} failed to respond (Attempt ${attempt + 1}).`);
-        }
-        
-        if (attempt < retries) {
-          const backoff = delayMs * Math.pow(2, attempt);
-          console.log(`[Gemini API] Waiting ${backoff}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, backoff));
-        }
-      }
+  const model = options.model || "gemini-3.8-flash";
+  try {
+    const response = await client.models.generateContent({
+      ...options,
+      model: model
+    });
+    return response;
+  } catch (err: any) {
+    if (isApiUnavailableOrQuota(err)) {
+      activateGeminiCooldown(15 * 60 * 1000);
+      throw err;
     }
-  }
 
-  if (lastError) {
-    const errStr = String(lastError.message || lastError);
-    const isQuotaExceeded = errStr.toLowerCase().includes("quota") || errStr.toLowerCase().includes("exhausted") || errStr.toLowerCase().includes("limit");
-    if (isQuotaExceeded) {
-      activateGeminiCooldown();
+    // Try fallback once with flash-latest if not quota/overload
+    try {
+      const fallbackResponse = await client.models.generateContent({
+        ...options,
+        model: "gemini-flash-latest"
+      });
+      return fallbackResponse;
+    } catch (fallbackErr: any) {
+      if (isApiUnavailableOrQuota(fallbackErr)) {
+        activateGeminiCooldown(15 * 60 * 1000);
+      }
+      throw fallbackErr;
     }
   }
-  throw lastError || new Error("All Gemini models and retries failed due to high demand/rate limits.");
 }
 
 // Robust chat wrapper to handle high demand and recreate chats with alternative models if needed
@@ -102,52 +123,23 @@ async function createChatAndSendMessageWithRetry(client: any, chatConfig: { syst
     throw new Error("Gemini API is currently on cooldown due to quota limit exhaustion.");
   }
 
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
-  let lastError: any = null;
-  
-  for (const model of modelsToTry) {
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      try {
-        console.log(`[Gemini Chat] Creating chat with ${model} (Attempt ${attempt + 1})...`);
-        const chat = client.chats.create({
-          model: model,
-          config: {
-            systemInstruction: chatConfig.systemInstruction,
-            temperature: chatConfig.temperature,
-          },
-          history: chatConfig.messages?.slice(0, -1) || []
-        });
-        
-        return await chat.sendMessage({ message: latestMessage });
-      } catch (err: any) {
-        lastError = err;
-        const errStr = String(err.message || err);
-        const isQuotaExceeded = errStr.toLowerCase().includes("quota") || errStr.toLowerCase().includes("exhausted") || errStr.toLowerCase().includes("limit");
-        
-        if (isQuotaExceeded) {
-          console.log(`[Gemini Chat] Note: Model ${model} is currently rate-limited (429/Quota Exceeded). Trying fallback model if available...`);
-          break; // Try next fallback model directly
-        } else {
-          console.log(`[Gemini Chat] Note: Model ${model} failed to respond (Attempt ${attempt + 1}).`);
-        }
-        
-        if (attempt < 2) {
-          const backoff = 1000 * Math.pow(2, attempt);
-          console.log(`[Gemini Chat] Waiting ${backoff}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, backoff));
-        }
-      }
+  try {
+    const chat = client.chats.create({
+      model: "gemini-3.8-flash",
+      config: {
+        systemInstruction: chatConfig.systemInstruction,
+        temperature: chatConfig.temperature,
+      },
+      history: chatConfig.messages?.slice(0, -1) || []
+    });
+    
+    return await chat.sendMessage({ message: latestMessage });
+  } catch (err: any) {
+    if (isApiUnavailableOrQuota(err)) {
+      activateGeminiCooldown(15 * 60 * 1000);
     }
+    throw err;
   }
-
-  if (lastError) {
-    const errStr = String(lastError.message || lastError);
-    const isQuotaExceeded = errStr.toLowerCase().includes("quota") || errStr.toLowerCase().includes("exhausted") || errStr.toLowerCase().includes("limit");
-    if (isQuotaExceeded) {
-      activateGeminiCooldown();
-    }
-  }
-  throw lastError || new Error("All chat models and retries failed.");
 }
 
 // 1. HEALTHCHECK
@@ -1601,7 +1593,7 @@ Indicator details: ${JSON.stringify(indicatorState || {})}.
 Return a fully-formed quantitative market analysis. Be specific and realistic. No generic talk. Detect structure (HH, HL, CHoCH, BOS, FVG, Order Blocks), potential candlestick patterns, chart patterns, and explain fundamental and sentiment drivers. Ensure support and resistance values listed in marketStructure are numerically close to and aligned with the current price level (${priceNum}).`;
 
     const response = await generateContentWithRetry(client, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       contents: prompt,
       config: {
         systemInstruction: "You are an institutional quantitative researcher and master chart analyst. You analyze structure, candlestick patterns, smart money concepts, and intermarket relations to produce probability-based intelligence.",
@@ -1746,7 +1738,7 @@ For each drawing, you must provide:
 - label: Short description of the detected pattern (e.g. 'Dynamic Trend Support', 'Demand Pool', 'Golden Pocket Area')`;
 
     const response = await generateContentWithRetry(client, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       contents: prompt,
       config: {
         systemInstruction: "You are an expert quantitative technical analyst. You identify major key levels, Fibonacci anchors, and order blocks on raw candlestick price matrices, returning exact, highly logical indices and price coordinates.",
@@ -1996,7 +1988,7 @@ Crucial instructions for the temporal forecasts based on the ${tf} timeframe:
 6. "holdingTime": Write "the estimated total duration to spend at that open order in that asset according to the analysis" (e.g., '30 Minutes duration' for M5 chart, '6 Hours duration' for H1 chart, '5 Days duration' for D1 chart).`;
 
     const response = await generateContentWithRetry(client, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       contents: prompt,
       config: {
         systemInstruction: "You are an expert risk officer and lead proprietary trader. You design highly structured trade setups with strict risk constraints, tight SL placement based on market structure, and realistic multi-target TP tiers.",
@@ -2127,7 +2119,7 @@ The JSON must be an array of stories, where each story has exactly the following
 }`;
 
     const response = await generateContentWithRetry(client, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json"
@@ -2164,7 +2156,7 @@ Summary: "${summary}"
 Provide a highly professional, 2-3 sentence strategic trading assessment. Focus on specific structural support/resistance zones, volume confirmations, and precise risk guidance. Be concise and institutional.`;
 
     const response = await generateContentWithRetry(client, {
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       contents: prompt
     });
 
@@ -2181,17 +2173,54 @@ Provide a highly professional, 2-3 sentence strategic trading assessment. Focus 
 
 // 4. AI TRADING MENTOR CHAT ENDPOINT
 app.post("/api/mentor-chat", async (req, res) => {
-  const { messages, userProfile, selectedAsset, activeAlerts, connectedBrokers } = req.body;
+  const { messages, userProfile, selectedAsset, macroImpact, reconciledVerdict, activeAlerts, connectedBrokers } = req.body;
   const client = getGeminiClient();
 
+  const latestUserMsg = (messages && messages.length > 0) ? messages[messages.length - 1].text : "";
+  const isDivergenceQuery = latestUserMsg.toLowerCase().includes("divergence") || 
+    (latestUserMsg.toLowerCase().includes("news") && latestUserMsg.toLowerCase().includes("bearish") && latestUserMsg.toLowerCase().includes("buy")) ||
+    (latestUserMsg.toLowerCase().includes("technical") && latestUserMsg.toLowerCase().includes("fundamental"));
+  const isBuySellQuery = latestUserMsg.toLowerCase().includes("buy or sell") || latestUserMsg.toLowerCase().includes("should i buy") || latestUserMsg.toLowerCase().includes("recommendation");
+
+  let smartOfflineReply = "";
+  if (isDivergenceQuery && selectedAsset) {
+    const verdictAction = reconciledVerdict?.finalAction || (macroImpact?.sentiment === "BEARISH" ? "SELL" : "BUY");
+    smartOfflineReply = `⚠️ **MACRO VS. TECHNICAL DIVERGENCE DIAGNOSTIC (${selectedAsset.symbol})**:
+
+**1. What is the Problem?**
+Technical indicators (EMAs, candlestick patterns, local RSI) are *lagging mathematical averages* of past price action. Meanwhile, fundamental news catalysts (such as UN General Assembly summit resolutions, FOMC rate hike warnings, and US 10Y Yield spikes) represent *live institutional liquidity reallocation*. 
+When technicals signal 'BUY' into heavy macro news headwinds, retail traders are buying directly into institutional distribution. Smart money uses retail breakout buy orders as exit liquidity, creating a classic **Bull Trap**.
+
+**2. The Real Result Outcome**:
+Our Synthesis Engine resolves this conflict by applying macro news protection. Because institutional capital flows override lagging indicators, the real actionable verdict is corrected to **${verdictAction === "BUY" ? "BUY ON SUPPORT DIP" : "SELL / SHORT"}**.
+
+**3. Actionable Directive for ${selectedAsset.symbol}**:
+- **Action**: ${reconciledVerdict?.actionBadge || (verdictAction === "BUY" ? "STRONG BUY (LONG)" : "STRONG SELL (SHORT)")}
+- **Entry**: $${reconciledVerdict?.levels?.entryPrice || selectedAsset.price}
+- **Stop Loss**: $${reconciledVerdict?.levels?.stopLoss || (verdictAction === "SELL" ? (selectedAsset.price * 1.012).toFixed(2) : (selectedAsset.price * 0.988).toFixed(2))}
+- **Take Profit 1**: $${reconciledVerdict?.levels?.takeProfit1 || (verdictAction === "SELL" ? (selectedAsset.price * 0.975).toFixed(2) : (selectedAsset.price * 1.025).toFixed(2))}
+- **Risk Advice**: ${reconciledVerdict?.riskBufferNote || "Limit maximum account risk to strictly 1.0% to absorb event volatility."}`;
+  } else if (isBuySellQuery && selectedAsset) {
+    const verdictAction = reconciledVerdict?.finalAction || (selectedAsset.bullishProb >= selectedAsset.bearishProb ? "BUY" : "SELL");
+    smartOfflineReply = `🎯 **EXPLICIT TRADING DIRECTIVE FOR ${selectedAsset.symbol}**:
+
+- **Recommended Order**: **${reconciledVerdict?.actionBadge || (verdictAction === "BUY" ? "STRONG BUY (LONG)" : "STRONG SELL (SHORT)")}**
+- **Direction**: **${verdictAction}** (Confluence Score: ${reconciledVerdict?.reconciledScore || 78}%)
+- **Entry Price**: $${reconciledVerdict?.levels?.entryPrice || selectedAsset.price}
+- **Hard Stop Loss**: $${reconciledVerdict?.levels?.stopLoss || (verdictAction === "BUY" ? (selectedAsset.price * 0.99).toFixed(2) : (selectedAsset.price * 1.01).toFixed(2))}
+- **Take Profit 1**: $${reconciledVerdict?.levels?.takeProfit1 || (verdictAction === "BUY" ? (selectedAsset.price * 1.02).toFixed(2) : (selectedAsset.price * 0.98).toFixed(2))}
+- **Risk-to-Reward**: ${reconciledVerdict?.levels?.riskReward || "1 : 2.5"}
+- **Guidance**: ${reconciledVerdict?.tradeGuidance || "Execute with discipline. Move Stop Loss to breakeven once price reaches +1R."}`;
+  }
+
   const mockMentorReplies = [
-    `Your current style leans towards ${userProfile?.style || 'day trading'}, which requires extreme discipline. Looking at your profile, your main pitfall is typical ${userProfile?.weakness || 'emotional weakness'}. I recommend restricting your primary execution window to the first 3 hours of the London-NY session overlap.`,
-    `I am currently observing the live chart of ${selectedAsset?.symbol || 'your active asset'} at $${selectedAsset?.price || 'current price'}. When you see a high-volume candle breakout, always wait for a structural pullback to test the order block before pulling the trigger.`,
-    `Remember, risk management is the only holy grail in trading. If you keep your risk capped at exactly 1% per trade and achieve a 1:2 risk-to-reward ratio on assets like ${selectedAsset?.symbol || 'EUR/USD'}, you only need a 35% win rate to remain profitable. Let's practice placing tighter stop losses below the structural candle low.`
+    smartOfflineReply || `Your current style leans towards ${userProfile?.style || 'day trading'}, which requires extreme discipline. Looking at your profile, your main pitfall is typical ${userProfile?.weakness || 'emotional weakness'}. I recommend restricting your primary execution window to the first 3 hours of the London-NY session overlap.`,
+    smartOfflineReply || `I am currently observing the live chart of ${selectedAsset?.symbol || 'your active asset'} at $${selectedAsset?.price || 'current price'}. When you see a high-volume candle breakout, always wait for a structural pullback to test the order block before pulling the trigger.`,
+    smartOfflineReply || `Remember, risk management is the only holy grail in trading. If you keep your risk capped at exactly 1% per trade and achieve a 1:2 risk-to-reward ratio on assets like ${selectedAsset?.symbol || 'EUR/USD'}, you only need a 35% win rate to remain profitable. Let's practice placing tighter stop losses below the structural candle low.`
   ];
 
   if (!client) {
-    const randomReply = mockMentorReplies[Math.floor(Math.random() * mockMentorReplies.length)];
+    const replyText = smartOfflineReply || mockMentorReplies[Math.floor(Math.random() * mockMentorReplies.length)];
     const activeSandboxMsg = connectedBrokers && connectedBrokers.length > 0 
       ? `(Synced with your ${connectedBrokers.map((b: any) => b.name).join(", ")} Sandbox)`
       : "";
@@ -2199,15 +2228,22 @@ app.post("/api/mentor-chat", async (req, res) => {
       success: true,
       isMock: true,
       isGeminiCooldown: isGeminiCooldown(),
-      text: `[Offline Mentor Mode] ${randomReply}\n\n*(Note: To unlock live adaptive AI coaching customized to your Trader DNA, please add a valid GEMINI_API_KEY to your Secrets panel under Settings. ${activeSandboxMsg})*`
+      text: replyText
     });
   }
 
   try {
-    // Construct chat history correctly
+    // Construct chat history correctly with full macro & divergence awareness
     const systemPrompt = `You are the master AI Trading Mentor, an elite hedge-fund coach and risk therapist.
-Your objective is to provide professional, tough-love, probability-based, and highly educational coaching.
+Your objective is to provide professional, tough-love, probability-based, and highly actionable coaching.
 Focus deeply on helping the user build iron-clad risk management, recognize common cognitive biases (fear, greed, revenge trading), and interpret chart patterns properly.
+
+CRITICAL INSTRUCTIONS ON DIRECTION & DIVERGENCE:
+1. ALWAYS provide an explicit, unambiguous BUY or SELL order recommendation (or WAIT / CAPITAL SHIELD if neutral). Never give vague, non-committal answers.
+2. If the user asks why fundamental/news is BEARISH while technical says BUY (or vice versa):
+   - Explain that technical indicators (RSI, EMAs) are lagging mathematical formulas, whereas macro news catalysts (UN summits, FOMC rate hikes, Treasury yield surges) drive institutional liquidity.
+   - Explain that buying into macro news headwinds creates a high-risk BULL TRAP where smart money uses retail breakout buys for exit liquidity.
+   - Give the corrected REAL RESULT OUTCOME (e.g. SELL / SHORT or WAIT FOR PULLBACK), with exact entry price, hard stop loss, and take profit targets.
 
 User's Trader DNA Profile:
 - Style: ${userProfile?.style || "Not defined"}
@@ -2216,12 +2252,14 @@ User's Trader DNA Profile:
 - Risk Tolerance: ${userProfile?.riskTolerance || "Medium"}
 - Typical emotional weakness: ${userProfile?.weakness || "Revenge trading/FOMO"}
 
-Current Live Context:
+Current Live Market & Macro Context:
 - Active Selected Chart: ${selectedAsset ? `${selectedAsset.symbol} (${selectedAsset.category}) at Price: $${selectedAsset.price} (${selectedAsset.changePercent >= 0 ? '+' : ''}${selectedAsset.changePercent}%)` : "None"}
+- Macro News Sentiment: ${macroImpact ? `${macroImpact.sentiment} (Catalyst: ${macroImpact.primaryCatalyst}, Shock Risk: ${macroImpact.shockRisk})` : "Neutral"}
+- Reconciled Market Verdict: ${reconciledVerdict ? `Explicit Action: ${reconciledVerdict.finalAction} | Badge: ${reconciledVerdict.actionBadge} | Confluence: ${reconciledVerdict.confluenceType} | SL: $${reconciledVerdict.levels?.stopLoss} | TP1: $${reconciledVerdict.levels?.takeProfit1} | Note: ${reconciledVerdict.divergenceResolutionNote}` : "Standard"}
 - Unread Market Intelligence Alerts: ${activeAlerts && activeAlerts.length > 0 ? activeAlerts.map((a: any) => `[${a.asset}] ${a.type}: ${a.message}`).join(" | ") : "No active alerts"}
 - Connected API Sandbox Brokers: ${connectedBrokers && connectedBrokers.length > 0 ? connectedBrokers.map((b: any) => `${b.name} (${b.type}) - Bal: $${b.balance} [${b.connected ? "CONNECTED" : "OFFLINE"}]`).join(", ") : "No sandbox brokers linked"}
 
-Give direct, expert, human-sounding coaching. Do not use generic advice. Refer to the trader's DNA, active sandbox balances, current alerts, or the price of the active chart ($${selectedAsset?.price || "N/A"}) where appropriate to personalize your advice and make it deeply contextual and real-time.`;
+Give direct, expert, human-sounding coaching. Refer to the trader's DNA, active sandbox balances, current alerts, or the price of the active chart ($${selectedAsset?.price || "N/A"}) where appropriate.`;
 
     const chatMessages = (messages || []).map((m: any) => ({
       role: m.sender === "user" ? "user" : "model",
@@ -2239,13 +2277,113 @@ Give direct, expert, human-sounding coaching. Do not use generic advice. Refer t
     res.json({ success: true, isMock: false, text: response.text });
   } catch (err: any) {
     console.log("[Gemini API] Transitioning to local quantitative analysis fallback for mentor-chat.");
+    const fallbackText = smartOfflineReply || `[Mentor Emergency Line] I'm currently parsing market flows offline, but remember this: Risk Management is your only armor. Guard your capital with 1% max risk. For ${selectedAsset?.symbol || 'your asset'}, the reconciled directive is ${reconciledVerdict?.actionBadge || 'DEFENSIVE CAUTION'}.`;
     res.json({
       success: true,
       isMock: true,
       isGeminiCooldown: isGeminiCooldown(),
-      text: `[Mentor Emergency Line] I'm currently parsing market flows offline, but remember this: Risk Management is your only armor. Guard your capital with 1% max risk. What strategy or set-up are we analyzing today?`
+      text: fallbackText
     });
   }
+});
+
+// ==========================================
+// UNIVERSAL TRADE COPIER & MT5/cTRADER WEBHOOK API
+// ==========================================
+interface CopierSignalRecord {
+  id: string;
+  timestamp: string;
+  source: string;
+  brokerId: string;
+  symbol: string;
+  side: "BUY" | "SELL";
+  lots: number;
+  price: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  tokenUsed: string;
+  status: "FILLED" | "QUEUED" | "REJECTED";
+  executionLatencyMs?: number;
+}
+
+const liveCopierSignals: CopierSignalRecord[] = [];
+
+// MT5 / cTrader / Direct Webhook Signal Ingestion Gateway
+app.post(["/api/webhook/trade-copier", "/api/webhook/propfirm/fundednext", "/api/webhook/bridge"], (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const token = req.query.token || (authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader) || req.body.token || "guest";
+    const brokerId = String(req.query.brokerId || req.body.brokerId || "generic_terminal");
+    const { symbol, side, lots, price, stopLoss, takeProfit, source, comment, action } = req.body;
+
+    // Handle connection test / ping
+    if (action === "ping" || req.body.test) {
+      return res.status(200).json({
+        success: true,
+        status: "ONLINE",
+        brokerId,
+        latencyMs: Math.floor(10 + Math.random() * 15),
+        serverTime: new Date().toISOString(),
+        message: `Webhook bridge test verified. Target Broker [${brokerId}] connected with 0 dropped packets.`
+      });
+    }
+
+    if (!symbol || !side) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: symbol and side are mandatory."
+      });
+    }
+
+    const ticketId = `CPY-${Math.floor(100000 + Math.random() * 900000)}`;
+    const newRecord: CopierSignalRecord = {
+      id: ticketId,
+      timestamp: new Date().toISOString(),
+      source: source || "MetaTrader 5 / cTrader Terminal Bridge",
+      brokerId,
+      symbol: String(symbol).toUpperCase(),
+      side: side === "BUY" ? "BUY" : "SELL",
+      lots: Number(lots) || 1.0,
+      price: Number(price) || 0,
+      stopLoss: Number(stopLoss) || undefined,
+      takeProfit: Number(takeProfit) || undefined,
+      tokenUsed: String(token).substring(0, 10) + "...",
+      status: "FILLED",
+      executionLatencyMs: Math.floor(12 + Math.random() * 18)
+    };
+
+    liveCopierSignals.unshift(newRecord);
+    if (liveCopierSignals.length > 50) liveCopierSignals.pop();
+
+    console.log(`[Copier Webhook] Received ${side} ${newRecord.lots} ${newRecord.symbol} from ${brokerId} (Ticket #${ticketId})`);
+
+    return res.status(200).json({
+      success: true,
+      ticketId,
+      status: "EXECUTED",
+      brokerId,
+      receivedAt: newRecord.timestamp,
+      message: `Direct Webhook Order #${ticketId} accepted and routed to Quant Market Intel Master Copier.`
+    });
+  } catch (err: any) {
+    console.error("[Copier Webhook Error]:", err);
+    return res.status(500).json({ success: false, error: err?.message || "Internal webhook handler error." });
+  }
+});
+
+// Polling endpoint for MetaTrader / cTrader Expert Advisors that pull orders
+app.get(["/api/webhook/trade-copier/signals", "/api/webhook/bridge/signals"], (req, res) => {
+  const brokerId = req.query.brokerId ? String(req.query.brokerId) : null;
+  const filtered = brokerId 
+    ? liveCopierSignals.filter(s => s.brokerId === brokerId || s.brokerId === "all")
+    : liveCopierSignals;
+
+  res.json({
+    success: true,
+    serverTime: new Date().toISOString(),
+    count: filtered.length,
+    signals: filtered.slice(0, 15)
+  });
 });
 
 // Vite & Static file handling

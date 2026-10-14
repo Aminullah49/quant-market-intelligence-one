@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { ChatMessage, TraderDNA, MarketAsset, AlertItem } from "../types";
-import { MessageSquare, Send, X, Bot, ShieldCheck, RefreshCw } from "lucide-react";
+import { MessageSquare, Send, X, Bot, ShieldCheck, RefreshCw, Sparkles, TrendingUp, TrendingDown, Radio } from "lucide-react";
+import { getAssetMacroImpact, reconcileTechnicalAndFundamental } from "../utils/marketNews";
 
 interface MentorCoachProps {
   userProfile: TraderDNA;
@@ -30,20 +31,24 @@ export default function MentorCoach({ userProfile, selectedAsset, alerts, isGemi
     }
   }, [messages, isOpen]);
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim() || loading) return;
+  const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
+    if (e) e.preventDefault();
+    const query = (customText || inputText).trim();
+    if (!query || loading) return;
 
     const userMsg: ChatMessage = {
       id: "u_" + Date.now(),
       sender: "user",
-      text: inputText,
+      text: query,
       timestamp: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
     };
 
     setMessages(prev => [...prev, userMsg]);
-    setInputText("");
+    if (!customText) setInputText("");
     setLoading(true);
+
+    const macroImpact = selectedAsset ? getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category) : null;
+    const reconciledVerdict = selectedAsset ? reconcileTechnicalAndFundamental(selectedAsset) : null;
 
     try {
       const response = await fetch("/api/mentor-chat", {
@@ -53,6 +58,8 @@ export default function MentorCoach({ userProfile, selectedAsset, alerts, isGemi
           messages: [...messages, userMsg],
           userProfile,
           selectedAsset,
+          macroImpact,
+          reconciledVerdict,
           activeAlerts: alerts?.filter(a => !a.isRead) || [],
           connectedBrokers: JSON.parse(localStorage.getItem("connected_brokers_list") || "[]")
         })
@@ -157,8 +164,36 @@ export default function MentorCoach({ userProfile, selectedAsset, alerts, isGemi
             <div ref={chatBottomRef} />
           </div>
 
+          {/* Quick Action Prompt Chips */}
+          <div className="bg-slate-950 px-2.5 pt-2 pb-1 border-t border-slate-800/80 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+            <button
+              type="button"
+              onClick={() => handleSendMessage(undefined, `Why is fundamental news bearish on ${selectedAsset?.symbol || 'active asset'} while technical is buy? What is the problem and what is the real result outcome?`)}
+              className="px-2 py-1 bg-slate-900 hover:bg-slate-850 border border-amber-500/30 text-amber-300 text-[10px] font-mono rounded-md whitespace-nowrap cursor-pointer transition-all flex items-center gap-1 shrink-0"
+            >
+              <Sparkles className="h-3 w-3 text-amber-400" />
+              <span>News Bearish vs Tech Buy?</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSendMessage(undefined, `Give me an explicit BUY or SELL order recommendation for ${selectedAsset?.symbol || 'active asset'} right now with exact Stop Loss and Take Profit.`)}
+              className="px-2 py-1 bg-slate-900 hover:bg-slate-850 border border-emerald-500/30 text-emerald-300 text-[10px] font-mono rounded-md whitespace-nowrap cursor-pointer transition-all flex items-center gap-1 shrink-0"
+            >
+              <TrendingUp className="h-3 w-3 text-emerald-400" />
+              <span>BUY or SELL {selectedAsset?.symbol}?</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSendMessage(undefined, `How do UN General Assembly resolutions and 10Y Yield surges impact my risk on ${selectedAsset?.symbol || 'Nasdaq/Gold'}?`)}
+              className="px-2 py-1 bg-slate-900 hover:bg-slate-850 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono rounded-md whitespace-nowrap cursor-pointer transition-all flex items-center gap-1 shrink-0"
+            >
+              <Radio className="h-3 w-3 text-cyan-400" />
+              <span>UN Summit & Macro Risk</span>
+            </button>
+          </div>
+
           {/* Form input */}
-          <form onSubmit={handleSendMessage} className="bg-slate-950 border-t border-slate-800 p-2.5 flex gap-2">
+          <form onSubmit={(e) => handleSendMessage(e)} className="bg-slate-950 p-2.5 flex gap-2">
             <input
               type="text"
               value={inputText}

@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { MarketAsset } from "../types";
 import { ECONOMIC_EVENTS } from "../data";
 import { calculateUnifiedScore } from "../utils";
-import { TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertCircle, ArrowUpRight, CheckCircle2, Activity, Check, Compass, HelpCircle, Radio, Play, Square } from "lucide-react";
+import { TrendingUp, TrendingDown, Clock, ShieldAlert, ShieldCheck, Zap, AlertCircle, ArrowUpRight, CheckCircle2, Activity, Check, Compass, HelpCircle, Radio, Play, Square, ArrowRight, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import AdBanner from "./AdBanner";
+import { reconcileTechnicalAndFundamental, getAssetMacroImpact } from "../utils/marketNews";
 
 interface DashboardProps {
   assets: MarketAsset[];
@@ -336,6 +337,82 @@ export default function Dashboard({ assets, onSelectAsset, onNavigate, hasApiKey
 
       </div>
 
+      {/* LIVE BREAKING MACRO NEWS WIRE TICKER BANNER */}
+      <div className="bg-slate-900 border border-cyan-500/30 rounded-2xl p-4 sm:p-5 relative overflow-hidden shadow-xl">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-start gap-3.5">
+            <div className="h-10 w-10 bg-cyan-500/15 border border-cyan-500/30 rounded-xl flex items-center justify-center text-cyan-400 shrink-0 shadow-lg">
+              <Radio className="h-5 w-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono font-black uppercase text-cyan-400 bg-cyan-950/60 border border-cyan-900/40 px-2 py-0.5 rounded">
+                  LIVE MACRO WIRE
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                  UN General Assembly • Fed 10Y Yields • Intermarket Shockwaves
+                </span>
+              </div>
+              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                Institutional News Feed: Real-Time Catalysts Auto-Merged with Analysis
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5 max-w-2xl">
+                Global summit resolutions and central bank yield spikes directly impact equities and gold. Track breaking news and automated sentiment scores directly within your trading cockpit.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0 w-full md:w-auto">
+            <button
+              onClick={() => onNavigate("news")}
+              className="w-full md:w-auto px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-mono font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-950/50"
+            >
+              <Radio className="h-4 w-4" />
+              <span>Open News Feed & Catalysts</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* MACRO VOLATILITY & LOSS PROTECTION ALERT BANNER */}
+      <div className="bg-gradient-to-r from-slate-900 via-rose-950/20 to-slate-900 border border-rose-500/30 rounded-2xl p-4 sm:p-5 relative overflow-hidden shadow-xl">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-start gap-3.5">
+            <div className="h-10 w-10 bg-rose-500/15 border border-rose-500/30 rounded-xl flex items-center justify-center text-rose-400 shrink-0 shadow-lg">
+              <ShieldAlert className="h-5 w-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-mono font-black uppercase text-rose-400 bg-rose-950/60 border border-rose-900/40 px-2 py-0.5 rounded">
+                  MACRO DEFENSE PROTOCOL ACTIVE
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                  UN Summits • Rate Cut Pullbacks • Extreme Whipsaws
+                </span>
+              </div>
+              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                Loss Protection Shield: Neutralize Sudden Market Drops & Pullbacks
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5 max-w-2xl">
+                Asset prices like Nasdaq and Gold experience algorithmic profit-taking and geopolitical whipsaws after major high-level meetings. Use our 6-step defense workflow to cap your risk at strictly 1–2%.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0 w-full md:w-auto">
+            <button
+              onClick={() => onNavigate("shield")}
+              className="w-full md:w-auto px-4 py-2.5 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-mono font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-rose-950/50"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span>Open Loss Shield Matrix</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Grid: Live Markets & Sentiment Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -436,14 +513,27 @@ export default function Dashboard({ assets, onSelectAsset, onNavigate, hasApiKey
                         {asset.changePercent >= 0 ? '+' : ''}{asset.changePercent}%
                       </td>
                       <td className="py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-0.5 ${
-                            isBullish ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                          }`}>
-                            {isBullish ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                            {isBullish ? 'Bullish' : 'Bearish'}
-                          </span>
-                        </div>
+                        {(() => {
+                          const assetVerdict = reconcileTechnicalAndFundamental(asset);
+                          const hasDivergence = assetVerdict.confluenceType.includes("DIVERGENCE");
+                          return (
+                            <div className="flex flex-col items-center justify-center gap-1 font-mono">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 ${
+                                assetVerdict.finalAction === "BUY" ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                                assetVerdict.finalAction === "SELL" ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                                'bg-slate-800 text-slate-300'
+                              }`}>
+                                {assetVerdict.finalAction === "BUY" ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                <span>{assetVerdict.finalAction === "BUY" ? "BUY DIRECTIVE" : "SELL DIRECTIVE"}</span>
+                              </span>
+                              {hasDivergence && (
+                                <span className="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                                  ⚠️ News/Tech Divergence
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5 font-mono text-slate-300">
@@ -559,44 +649,85 @@ export default function Dashboard({ assets, onSelectAsset, onNavigate, hasApiKey
 
 
             {/* Confluence Rating Status */}
-            {confData && (
-              <div className="space-y-3">
-                <div className={`p-2.5 border rounded-lg flex items-center justify-between text-xs font-bold ${confData.statusColor}`}>
-                  <span className="font-mono flex items-center gap-1.5">
-                    {isLiveScanning ? <Radio className="h-3.5 w-3.5 animate-pulse text-current" /> : null}
-                    {confData.statusLabel}
-                  </span>
-                  <span className="px-1.5 py-0.2 bg-slate-950/40 rounded text-[10px] font-mono">
-                    {confData.matchCount}/6 Aligned
-                  </span>
-                </div>
+            {confData && (() => {
+              const liveVerdict = reconcileTechnicalAndFundamental(liveConfluenceAsset);
+              const isBuy = liveVerdict.finalAction === "BUY";
+              return (
+                <div className="space-y-3">
+                  
+                  {/* Real Reconciled Market Verdict Directive */}
+                  <div className={`p-3 rounded-xl border font-mono ${
+                    isBuy ? "bg-gradient-to-r from-emerald-950/70 to-slate-950 border-emerald-500/40" :
+                    liveVerdict.finalAction === "SELL" ? "bg-gradient-to-r from-rose-950/70 to-slate-950 border-rose-500/40" :
+                    "bg-slate-950 border-slate-800"
+                  }`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="h-3 w-3 text-cyan-400" />
+                        RECONCILED ACTION DIRECTIVE
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase font-mono ${
+                        isBuy ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" :
+                        liveVerdict.finalAction === "SELL" ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" :
+                        "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      }`}>
+                        {liveVerdict.actionBadge}
+                      </span>
+                    </div>
 
-                {/* Grid of Timeframe Blocks */}
-                <div className="space-y-2">
-                  {confData.biases.map((b) => {
-                    const isBullish = b.bias.includes("BULLISH");
-                    return (
-                      <div key={b.tf} className="p-2.5 bg-slate-950 border border-slate-850/80 rounded-lg flex items-center justify-between text-xs hover:border-slate-800 transition-all">
-                        <div className="space-y-0.5">
-                          <span className="font-mono font-bold text-slate-300 flex items-center gap-1.5">
-                            <span className="text-blue-400 font-extrabold">{b.tf}</span>
-                            <span className="text-[9.5px] text-slate-500 font-medium">({b.label})</span>
-                          </span>
-                          <span className="text-[10px] text-slate-500 block leading-tight font-mono">
-                            {b.ema} • RSI: {b.rsi}
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-black text-white">
+                        {isBuy ? "EXECUTE BUY / LONG" : liveVerdict.finalAction === "SELL" ? "EXECUTE SELL / SHORT" : "STAND ASIDE"}
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-300">
+                        Score: {liveVerdict.reconciledScore}%
+                      </span>
+                    </div>
+
+                    {liveVerdict.confluenceType.includes("DIVERGENCE") && (
+                      <p className="text-[10px] text-amber-300 mt-1.5 leading-snug bg-amber-500/10 p-1.5 rounded border border-amber-500/20">
+                        ⚠️ <strong>Divergence Detected:</strong> Technical and Macro News conflict. Real institutional outcome resolved to <strong>{liveVerdict.finalAction}</strong> to prevent bull/bear traps.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className={`p-2.5 border rounded-lg flex items-center justify-between text-xs font-bold ${confData.statusColor}`}>
+                    <span className="font-mono flex items-center gap-1.5">
+                      {isLiveScanning ? <Radio className="h-3.5 w-3.5 animate-pulse text-current" /> : null}
+                      {confData.statusLabel}
+                    </span>
+                    <span className="px-1.5 py-0.2 bg-slate-950/40 rounded text-[10px] font-mono">
+                      {confData.matchCount}/6 Aligned
+                    </span>
+                  </div>
+
+                  {/* Grid of Timeframe Blocks */}
+                  <div className="space-y-2">
+                    {confData.biases.map((b) => {
+                      const isBullish = b.bias.includes("BULLISH");
+                      return (
+                        <div key={b.tf} className="p-2.5 bg-slate-950 border border-slate-850/80 rounded-lg flex items-center justify-between text-xs hover:border-slate-800 transition-all">
+                          <div className="space-y-0.5">
+                            <span className="font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                              <span className="text-blue-400 font-extrabold">{b.tf}</span>
+                              <span className="text-[9.5px] text-slate-500 font-medium">({b.label})</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 block leading-tight font-mono">
+                              {b.ema} • RSI: {b.rsi}
+                            </span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide font-mono ${
+                            isBullish ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' : 'bg-rose-500/10 text-rose-400 border border-rose-500/10'
+                          }`}>
+                            {b.bias}
                           </span>
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide font-mono ${
-                          isBullish ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' : 'bg-rose-500/10 text-rose-400 border border-rose-500/10'
-                        }`}>
-                          {b.bias}
-                        </span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
           
           {/* Best Opportunities Panel */}
