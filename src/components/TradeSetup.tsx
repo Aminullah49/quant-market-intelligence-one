@@ -5,8 +5,16 @@ import {
   CheckCircle, ArrowUpRight, ShieldAlert, Sparkles, AlertCircle, AlertTriangle,
   Play, TrendingUp, TrendingDown, RefreshCw, Clock, Hourglass,
   Coins, Calculator, DollarSign, TrendingUp as ArrowUp, TrendingDown as ArrowDown,
-  Zap, Check, Loader2, ArrowRight, Radio, Globe, Shield, Lock, Copy
+  Zap, Check, Loader2, ArrowRight, Radio, Globe, Shield, Lock, Copy,
+  Layers, Compass, Target, ArrowUpDown, ChevronDown, ChevronUp, BarChart2,
+  BookmarkCheck, Info, ShieldCheck
 } from "lucide-react";
+import { 
+  getDecimals, 
+  calculateMarketStructureLevels, 
+  STYLE_TPSL_PROFILES, 
+  TradingStyleProfile 
+} from "../utils";
 import { 
   SUPPORTED_CURRENCIES, 
   getStoredCurrency, 
@@ -138,6 +146,13 @@ export default function TradeSetup({
     return "bg-rose-500/10 text-rose-400 border-rose-500/30";
   };
 
+  // Active Selected SL Tier (1st SL, 2nd SL, 3rd SL) and TP Tier (1st TP through 6th TP)
+  const [selectedSlTier, setSelectedSlTier] = useState<1 | 2 | 3>(1);
+  const [selectedTpTier, setSelectedTpTier] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+  const [activeStyleTab, setActiveStyleTab] = useState<'Scalper' | 'Intraday Trader' | 'Day Trader' | 'Swing Trader' | 'Position Trader'>(() => {
+    return (tradeSetup?.tradingStyle as any) || 'Scalper';
+  });
+
   // Helper to parse numeric entry price from entryZone string (e.g. "$1.0850" or "1.0850 - 1.0860")
   const getEntryPriceVal = (): number => {
     if (!tradeSetup) return selectedAsset.price;
@@ -150,25 +165,131 @@ export default function TradeSetup({
   };
 
   const entryVal = getEntryPriceVal();
+  const assetDecimals = getDecimals(selectedAsset);
+  const currentDir = tradeSetup?.direction || directionBias;
+  const isBuySide = currentDir === "BUY";
 
-  // Calculations for SL, TP1, and TP2
-  const slMetrics = tradeSetup ? calculateTradePnL({
+  // Check if active style matches setup or user wants to dynamically view that style's tiers
+  const activeProfile = STYLE_TPSL_PROFILES[activeStyleTab] || STYLE_TPSL_PROFILES['Scalper'];
+  const isCustomStyleSelected = Boolean(tradeSetup?.tradingStyle && tradeSetup.tradingStyle !== activeStyleTab);
+
+  // Calculate pip unit factor for current asset
+  const getPipFactor = () => {
+    if (selectedAsset.category === 'Forex') {
+      return selectedAsset.symbol.includes('JPY') ? 0.01 : 0.0001;
+    }
+    if (selectedAsset.category === 'Crypto') {
+      return entryVal * 0.00015;
+    }
+    if (selectedAsset.category === 'Indices') {
+      return 1.0;
+    }
+    return selectedAsset.symbol.includes('XAU') ? 0.10 : selectedAsset.symbol.includes('XAG') ? 0.01 : 0.05;
+  };
+  const pipUnitFactor = getPipFactor();
+
+  // Tiered Stop Loss Prices (1st SL, 2nd SL, 3rd SL) with 5-10 pip intervals & +5 baseline
+  const sl1Price = (!isCustomStyleSelected && tradeSetup)
+    ? (tradeSetup.stopLoss1 || tradeSetup.stopLoss)
+    : (isBuySide ? Number((entryVal - activeProfile.sl1Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal + activeProfile.sl1Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const sl2Price = (!isCustomStyleSelected && tradeSetup?.stopLoss2)
+    ? tradeSetup.stopLoss2
+    : (isBuySide ? Number((entryVal - activeProfile.sl2Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal + activeProfile.sl2Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const sl3Price = (!isCustomStyleSelected && tradeSetup?.stopLoss3)
+    ? tradeSetup.stopLoss3
+    : (isBuySide ? Number((entryVal - activeProfile.sl3Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal + activeProfile.sl3Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  // Tiered Take Profit Prices (1st TP, 2nd TP, 3rd TP) with 5-10 pip intervals & +5 baseline
+  const tp1Price = (!isCustomStyleSelected && tradeSetup)
+    ? tradeSetup.takeProfit1
+    : (isBuySide ? Number((entryVal + activeProfile.tp1Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal - activeProfile.tp1Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const tp2Price = (!isCustomStyleSelected && tradeSetup)
+    ? tradeSetup.takeProfit2
+    : (isBuySide ? Number((entryVal + activeProfile.tp2Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal - activeProfile.tp2Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const tp3Price = (!isCustomStyleSelected && tradeSetup?.takeProfit3)
+    ? tradeSetup.takeProfit3
+    : (isBuySide ? Number((entryVal + activeProfile.tp3Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal - activeProfile.tp3Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const activeSl1Pips = (!isCustomStyleSelected && tradeSetup?.sl1Pips) ? tradeSetup.sl1Pips : activeProfile.sl1Pips;
+  const activeSl2Pips = (!isCustomStyleSelected && tradeSetup?.sl2Pips) ? tradeSetup.sl2Pips : activeProfile.sl2Pips;
+  const activeSl3Pips = (!isCustomStyleSelected && tradeSetup?.sl3Pips) ? tradeSetup.sl3Pips : activeProfile.sl3Pips;
+
+  const activeTp1Pips = (!isCustomStyleSelected && tradeSetup?.tp1Pips) ? tradeSetup.tp1Pips : activeProfile.tp1Pips;
+  const activeTp2Pips = (!isCustomStyleSelected && tradeSetup?.tp2Pips) ? tradeSetup.tp2Pips : activeProfile.tp2Pips;
+  const activeTp3Pips = (!isCustomStyleSelected && tradeSetup?.tp3Pips) ? tradeSetup.tp3Pips : activeProfile.tp3Pips;
+
+  // 3 Additional Take Profits based on 1st TP value (+10, +20, +40 pips)
+  const activeTp4Pips = (!isCustomStyleSelected && tradeSetup?.tp4Pips) ? tradeSetup.tp4Pips : (activeTp1Pips + 10);
+  const activeTp5Pips = (!isCustomStyleSelected && tradeSetup?.tp5Pips) ? tradeSetup.tp5Pips : (activeTp1Pips + 20);
+  const activeTp6Pips = (!isCustomStyleSelected && tradeSetup?.tp6Pips) ? tradeSetup.tp6Pips : (activeTp1Pips + 40);
+
+  const tp4Price = (!isCustomStyleSelected && tradeSetup?.takeProfit4)
+    ? tradeSetup.takeProfit4
+    : (isBuySide ? Number((entryVal + activeTp4Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal - activeTp4Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const tp5Price = (!isCustomStyleSelected && tradeSetup?.takeProfit5)
+    ? tradeSetup.takeProfit5
+    : (isBuySide ? Number((entryVal + activeTp5Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal - activeTp5Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  const tp6Price = (!isCustomStyleSelected && tradeSetup?.takeProfit6)
+    ? tradeSetup.takeProfit6
+    : (isBuySide ? Number((entryVal + activeTp6Pips * pipUnitFactor).toFixed(assetDecimals)) : Number((entryVal - activeTp6Pips * pipUnitFactor).toFixed(assetDecimals)));
+
+  // Dynamically active user selected SL and TP
+  const activeSelectedSlPrice = selectedSlTier === 1 ? sl1Price : selectedSlTier === 2 ? sl2Price : sl3Price;
+  const activeSelectedTpPrice = 
+    selectedTpTier === 1 ? tp1Price 
+    : selectedTpTier === 2 ? tp2Price 
+    : selectedTpTier === 3 ? tp3Price 
+    : selectedTpTier === 4 ? tp4Price 
+    : selectedTpTier === 5 ? tp5Price 
+    : tp6Price;
+
+  // PnL Calculations for all 3 SL Tiers
+  const sl1Metrics = tradeSetup ? calculateTradePnL({
     symbol: selectedAsset.symbol,
     category: selectedAsset.category,
-    direction: tradeSetup.direction,
+    direction: currentDir,
     entryPrice: entryVal,
-    targetPrice: tradeSetup.stopLoss,
+    targetPrice: sl1Price,
     lotSize,
     currency: selectedCurrency,
     accountBalanceUSD
   }) : null;
 
+  const sl2Metrics = tradeSetup ? calculateTradePnL({
+    symbol: selectedAsset.symbol,
+    category: selectedAsset.category,
+    direction: currentDir,
+    entryPrice: entryVal,
+    targetPrice: sl2Price,
+    lotSize,
+    currency: selectedCurrency,
+    accountBalanceUSD
+  }) : null;
+
+  const sl3Metrics = tradeSetup ? calculateTradePnL({
+    symbol: selectedAsset.symbol,
+    category: selectedAsset.category,
+    direction: currentDir,
+    entryPrice: entryVal,
+    targetPrice: sl3Price,
+    lotSize,
+    currency: selectedCurrency,
+    accountBalanceUSD
+  }) : null;
+
+  // PnL Calculations for all 6 TP Tiers
   const tp1Metrics = tradeSetup ? calculateTradePnL({
     symbol: selectedAsset.symbol,
     category: selectedAsset.category,
-    direction: tradeSetup.direction,
+    direction: currentDir,
     entryPrice: entryVal,
-    targetPrice: tradeSetup.takeProfit1,
+    targetPrice: tp1Price,
     lotSize,
     currency: selectedCurrency,
     accountBalanceUSD
@@ -177,18 +298,80 @@ export default function TradeSetup({
   const tp2Metrics = tradeSetup ? calculateTradePnL({
     symbol: selectedAsset.symbol,
     category: selectedAsset.category,
-    direction: tradeSetup.direction,
+    direction: currentDir,
     entryPrice: entryVal,
-    targetPrice: tradeSetup.takeProfit2,
+    targetPrice: tp2Price,
     lotSize,
     currency: selectedCurrency,
     accountBalanceUSD
   }) : null;
 
+  const tp3Metrics = tradeSetup ? calculateTradePnL({
+    symbol: selectedAsset.symbol,
+    category: selectedAsset.category,
+    direction: currentDir,
+    entryPrice: entryVal,
+    targetPrice: tp3Price,
+    lotSize,
+    currency: selectedCurrency,
+    accountBalanceUSD
+  }) : null;
+
+  const tp4Metrics = tradeSetup ? calculateTradePnL({
+    symbol: selectedAsset.symbol,
+    category: selectedAsset.category,
+    direction: currentDir,
+    entryPrice: entryVal,
+    targetPrice: tp4Price,
+    lotSize,
+    currency: selectedCurrency,
+    accountBalanceUSD
+  }) : null;
+
+  const tp5Metrics = tradeSetup ? calculateTradePnL({
+    symbol: selectedAsset.symbol,
+    category: selectedAsset.category,
+    direction: currentDir,
+    entryPrice: entryVal,
+    targetPrice: tp5Price,
+    lotSize,
+    currency: selectedCurrency,
+    accountBalanceUSD
+  }) : null;
+
+  const tp6Metrics = tradeSetup ? calculateTradePnL({
+    symbol: selectedAsset.symbol,
+    category: selectedAsset.category,
+    direction: currentDir,
+    entryPrice: entryVal,
+    targetPrice: tp6Price,
+    lotSize,
+    currency: selectedCurrency,
+    accountBalanceUSD
+  }) : null;
+
+  const activeSlMetrics = selectedSlTier === 1 ? sl1Metrics : selectedSlTier === 2 ? sl2Metrics : sl3Metrics;
+  const activeTpMetrics = 
+    selectedTpTier === 1 ? tp1Metrics 
+    : selectedTpTier === 2 ? tp2Metrics 
+    : selectedTpTier === 3 ? tp3Metrics 
+    : selectedTpTier === 4 ? tp4Metrics 
+    : selectedTpTier === 5 ? tp5Metrics 
+    : tp6Metrics;
+
+  // Market Structure Data (Support S1-S3, Resistance R1-R3, HH/LL levels, and Reversal points)
+  const structureData = tradeSetup?.structure || calculateMarketStructureLevels(
+    selectedAsset.price,
+    currentDir,
+    tradeSetup?.timeframe || 'H4',
+    assetDecimals,
+    selectedAsset.category
+  );
+
   const propSafeLot = calculatePropFirmSafeLotSize(
     selectedAsset.symbol,
     entryVal,
-    tradeSetup ? tradeSetup.stopLoss : (directionBias === "BUY" ? entryVal * 0.995 : entryVal * 1.005),
+    activeSelectedSlPrice,
     propMetrics.initialBalance,
     propMetrics.maxRiskPerTradePct
   );
@@ -198,10 +381,10 @@ export default function TradeSetup({
     setIsPlacingDirectOrder(true);
     setDirectOrderReceipt(null);
 
-    const side = customSide || (tradeSetup ? tradeSetup.direction : directionBias);
+    const side = customSide || currentDir;
     const price = entryVal;
-    const sl = tradeSetup ? tradeSetup.stopLoss : (side === "BUY" ? price * 0.995 : price * 1.005);
-    const tp = tradeSetup ? tradeSetup.takeProfit1 : (side === "BUY" ? price * 1.01 : price * 0.99);
+    const sl = tradeSetup ? activeSelectedSlPrice : (side === "BUY" ? price * 0.995 : price * 1.005);
+    const tp = tradeSetup ? activeSelectedTpPrice : (side === "BUY" ? price * 1.01 : price * 0.99);
 
     // STRICT PROP FIRM VALIDATION
     if (isPropAccount) {
@@ -511,113 +694,719 @@ export default function TradeSetup({
               </div>
             )}
 
-            {/* Matrix of prices with Pips and Financial PnL */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-3.5 bg-slate-950 border border-slate-800/80 rounded-lg">
-                <span className="text-[10px] text-slate-500 font-mono block uppercase">ENTRY ZONE</span>
-                <span className="text-sm font-bold text-slate-200 mt-1 block font-mono">{tradeSetup.entryZone}</span>
-                <span className="text-[10px] text-slate-500 font-mono mt-1 block">Market Execution Price</span>
+            {/* 1. TRADING STYLE CONSOLE & IMAGE REFERENCE ALIGNMENT STRIP */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 font-mono">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <Compass className="h-4 w-4 text-cyan-400" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    Trading Style Calibration & Pip Reference Engine
+                  </span>
+                </div>
+                <span className="text-[10px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded font-bold">
+                  +5 Baseline Added · 5-10 Pip Tier Interval
+                </span>
               </div>
 
-              <div className="p-3.5 bg-slate-950 border border-rose-500/20 rounded-lg space-y-1">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] text-rose-400 font-mono block uppercase">STOP LOSS (EXPOSURE LIMIT)</span>
-                  {slMetrics && (
-                    <span className="text-[10px] font-mono font-bold bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/30">
-                      -{slMetrics.pips} Pips
-                    </span>
-                  )}
-                </div>
-                <span className="text-sm font-bold text-rose-400 block font-mono">
-                  ${tradeSetup.stopLoss.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 50 ? 4 : 2 })}
-                </span>
-                {slMetrics && (
-                  <span className="text-xs font-mono font-bold text-rose-400 block pt-0.5 border-t border-slate-900">
-                    Est. Loss: -{formatCurrencyAmount(slMetrics.pnlCurrency, selectedCurrency)} ({slMetrics.pnlPercentOfBalance.toFixed(1)}%)
-                  </span>
-                )}
+              {/* Style Selector Tabs */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                {(['Scalper', 'Intraday Trader', 'Day Trader', 'Swing Trader', 'Position Trader'] as const).map((styleKey) => {
+                  const prof = STYLE_TPSL_PROFILES[styleKey];
+                  const isSelected = activeStyleTab === styleKey;
+                  return (
+                    <button
+                      key={styleKey}
+                      type="button"
+                      onClick={() => setActiveStyleTab(styleKey)}
+                      className={`p-2 rounded-lg text-left transition-all border cursor-pointer ${
+                        isSelected 
+                          ? "bg-cyan-500/15 border-cyan-500 text-white shadow-md shadow-cyan-500/10"
+                          : "bg-slate-900/60 border-slate-850 hover:border-slate-700 text-slate-400"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold block">{prof.name}</span>
+                        {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />}
+                      </div>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">{prof.holdingTime.split('(')[0]}</span>
+                      <div className="mt-1 flex items-center gap-1.5 text-[8.5px] font-mono">
+                        <span className="text-emerald-400 font-bold">TP: {prof.tp1Pips}-{prof.tp3Pips}p</span>
+                        <span className="text-rose-400 font-bold">SL: {prof.sl1Pips}-{prof.sl3Pips}p</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="p-3.5 bg-slate-950 border border-emerald-500/20 rounded-lg space-y-1">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] text-emerald-400 font-mono block uppercase">TAKE PROFIT TIER 1</span>
-                  {tp1Metrics && (
-                    <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                      +{tp1Metrics.pips} Pips
+              {/* Active Style Reference Banner */}
+              {STYLE_TPSL_PROFILES[activeStyleTab] && (
+                <div className="p-2.5 bg-slate-900/80 border border-slate-800 rounded-lg flex flex-wrap items-center justify-between gap-2 text-[10.5px]">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                    <span className="text-slate-300">
+                      <strong>{STYLE_TPSL_PROFILES[activeStyleTab].name} Settings:</strong> 1st/2nd/3rd TP (+{STYLE_TPSL_PROFILES[activeStyleTab].tp1Pips}p, +{STYLE_TPSL_PROFILES[activeStyleTab].tp2Pips}p, +{STYLE_TPSL_PROFILES[activeStyleTab].tp3Pips}p) & 1st/2nd/3rd SL (-{STYLE_TPSL_PROFILES[activeStyleTab].sl1Pips}p, -{STYLE_TPSL_PROFILES[activeStyleTab].sl2Pips}p, -{STYLE_TPSL_PROFILES[activeStyleTab].sl3Pips}p).
                     </span>
-                  )}
-                </div>
-                <span className="text-sm font-bold text-emerald-400 block font-mono">
-                  ${tradeSetup.takeProfit1.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 50 ? 4 : 2 })}
-                </span>
-                {tp1Metrics && (
-                  <span className="text-xs font-mono font-bold text-emerald-400 block pt-0.5 border-t border-slate-900">
-                    Est. Profit: +{formatCurrencyAmount(tp1Metrics.pnlCurrency, selectedCurrency)} (+{tp1Metrics.pnlPercentOfBalance.toFixed(1)}%)
+                  </div>
+                  <span className="text-[9.5px] text-slate-400 italic">
+                    Duration: {STYLE_TPSL_PROFILES[activeStyleTab].holdingTime}
                   </span>
-                )}
+                </div>
+              )}
+            </div>
+
+            {/* 2. THREE-TIER STOP LOSS MATRIX (1st SL, 2nd SL, 3rd SL with 5-10 pip intervals) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-mono font-bold text-rose-400 uppercase tracking-wider">
+                  <ShieldAlert className="h-4 w-4 text-rose-400" />
+                  <span>Stop Loss Matrix (1st SL · 2nd SL · 3rd SL)</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Select active invalidation tier for order execution:
+                </span>
               </div>
 
-              <div className="p-3.5 bg-slate-950 border border-emerald-500/20 rounded-lg space-y-1">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] text-emerald-400 font-mono block uppercase">TAKE PROFIT TIER 2</span>
-                  {tp2Metrics && (
-                    <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                      +{tp2Metrics.pips} Pips
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* 1st Stop Loss */}
+                <div 
+                  onClick={() => setSelectedSlTier(1)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedSlTier === 1 
+                      ? "bg-rose-950/30 border-rose-500 shadow-md shadow-rose-950/40 ring-1 ring-rose-500/50" 
+                      : "bg-slate-950 border-rose-500/20 hover:border-rose-500/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-rose-400 uppercase flex items-center gap-1">
+                      <span>1st Stop Loss</span>
+                      <span className="text-[8.5px] text-slate-400 font-normal">(Tight Micro)</span>
                     </span>
-                  )}
-                </div>
-                <span className="text-sm font-bold text-emerald-400 block font-mono">
-                  ${tradeSetup.takeProfit2.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 50 ? 4 : 2 })}
-                </span>
-                {tp2Metrics && (
-                  <span className="text-xs font-mono font-bold text-emerald-400 block pt-0.5 border-t border-slate-900">
-                    Est. Profit: +{formatCurrencyAmount(tp2Metrics.pnlCurrency, selectedCurrency)} (+{tp2Metrics.pnlPercentOfBalance.toFixed(1)}%)
+                    {selectedSlTier === 1 ? (
+                      <span className="text-[8.5px] font-mono font-extrabold bg-rose-500 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-rose-400 block font-mono">
+                    ${sl1Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
                   </span>
-                )}
+                  <div className="mt-2 pt-2 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-rose-300 font-bold">-{activeSl1Pips} Pips</span>
+                    {sl1Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        -{formatCurrencyAmount(sl1Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Direct 1-5m candle wick invalidation</span>
+                </div>
+
+                {/* 2nd Stop Loss */}
+                <div 
+                  onClick={() => setSelectedSlTier(2)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedSlTier === 2 
+                      ? "bg-rose-950/30 border-rose-500 shadow-md shadow-rose-950/40 ring-1 ring-rose-500/50" 
+                      : "bg-slate-950 border-rose-500/20 hover:border-rose-500/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-rose-400 uppercase flex items-center gap-1">
+                      <span>2nd Stop Loss</span>
+                      <span className="text-[8.5px] text-slate-400 font-normal">(Structural Pivot)</span>
+                    </span>
+                    {selectedSlTier === 2 ? (
+                      <span className="text-[8.5px] font-mono font-extrabold bg-rose-500 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-rose-400 block font-mono">
+                    ${sl2Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-2 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-rose-300 font-bold">-{activeSl2Pips} Pips</span>
+                    {sl2Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        -{formatCurrencyAmount(sl2Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">+6-8p interval behind swing support</span>
+                </div>
+
+                {/* 3rd Stop Loss */}
+                <div 
+                  onClick={() => setSelectedSlTier(3)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedSlTier === 3 
+                      ? "bg-rose-950/30 border-rose-500 shadow-md shadow-rose-950/40 ring-1 ring-rose-500/50" 
+                      : "bg-slate-950 border-rose-500/20 hover:border-rose-500/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-rose-400 uppercase flex items-center gap-1">
+                      <span>3rd Stop Loss</span>
+                      <span className="text-[8.5px] text-slate-400 font-normal">(Spread Cushion)</span>
+                    </span>
+                    {selectedSlTier === 3 ? (
+                      <span className="text-[8.5px] font-mono font-extrabold bg-rose-500 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-rose-400 block font-mono">
+                    ${sl3Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-2 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-rose-300 font-bold">-{activeSl3Pips} Pips</span>
+                    {sl3Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        -{formatCurrencyAmount(sl3Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">+7-10p buffer against broker spikes</span>
+                </div>
               </div>
             </div>
 
-            {/* Dedicated Pip & Monetary PnL Calculation Summary Box */}
+            {/* 3. SIX-TIER TAKE PROFIT MATRIX (1st · 2nd · 3rd TP & 3 Additional TPs: +10, +20, +40 from 1st TP) */}
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                  <Target className="h-4 w-4 text-emerald-400" />
+                  <span>Take Profit Matrix (1st · 2nd · 3rd TP & +10, +20, +40 Additional TPs)</span>
+                </div>
+                <span className="text-[10px] bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-bold font-mono">
+                  Multi-Target Scale-Out & Money Management Active
+                </span>
+              </div>
+
+              {/* Grid of 6 Take Profit Tiers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {/* 1st Take Profit */}
+                <div 
+                  onClick={() => setSelectedTpTier(1)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedTpTier === 1 
+                      ? "bg-emerald-950/30 border-emerald-500 shadow-md shadow-emerald-950/40 ring-1 ring-emerald-500/50" 
+                      : "bg-slate-950 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-emerald-400 uppercase flex items-center gap-1">
+                      <span>1st Take Profit</span>
+                      <span className="text-[8px] text-slate-400 font-normal">(Initial Target)</span>
+                    </span>
+                    {selectedTpTier === 1 ? (
+                      <span className="text-[8px] font-mono font-extrabold bg-emerald-500 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-emerald-400 block font-mono">
+                    ${tp1Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-1.5 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-emerald-300 font-bold">+{activeTp1Pips} Pips</span>
+                    {tp1Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        +{formatCurrencyAmount(tp1Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                    <span>Scale-Out: 30% Vol</span>
+                    <span className="text-emerald-400/80 font-bold">Trigger Breakeven</span>
+                  </div>
+                </div>
+
+                {/* 2nd Take Profit */}
+                <div 
+                  onClick={() => setSelectedTpTier(2)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedTpTier === 2 
+                      ? "bg-emerald-950/30 border-emerald-500 shadow-md shadow-emerald-950/40 ring-1 ring-emerald-500/50" 
+                      : "bg-slate-950 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-emerald-400 uppercase flex items-center gap-1">
+                      <span>2nd Take Profit</span>
+                      <span className="text-[8px] text-slate-400 font-normal">(Core Target)</span>
+                    </span>
+                    {selectedTpTier === 2 ? (
+                      <span className="text-[8px] font-mono font-extrabold bg-emerald-500 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-emerald-400 block font-mono">
+                    ${tp2Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-1.5 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-emerald-300 font-bold">+{activeTp2Pips} Pips</span>
+                    {tp2Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        +{formatCurrencyAmount(tp2Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                    <span>Scale-Out: 25% Vol</span>
+                    <span className="text-cyan-400/80 font-bold">Trail SL to TP1</span>
+                  </div>
+                </div>
+
+                {/* 3rd Take Profit */}
+                <div 
+                  onClick={() => setSelectedTpTier(3)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedTpTier === 3 
+                      ? "bg-emerald-950/30 border-emerald-500 shadow-md shadow-emerald-950/40 ring-1 ring-emerald-500/50" 
+                      : "bg-slate-950 border-emerald-500/20 hover:border-emerald-500/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-emerald-400 uppercase flex items-center gap-1">
+                      <span>3rd Take Profit</span>
+                      <span className="text-[8px] text-slate-400 font-normal">(Structural Pivot)</span>
+                    </span>
+                    {selectedTpTier === 3 ? (
+                      <span className="text-[8px] font-mono font-extrabold bg-emerald-500 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-emerald-400 block font-mono">
+                    ${tp3Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-1.5 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-emerald-300 font-bold">+{activeTp3Pips} Pips</span>
+                    {tp3Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        +{formatCurrencyAmount(tp3Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                    <span>Scale-Out: 20% Vol</span>
+                    <span className="text-cyan-400/80 font-bold">Trail SL to TP2</span>
+                  </div>
+                </div>
+
+                {/* 4th Take Profit (+10 from 1st TP) */}
+                <div 
+                  onClick={() => setSelectedTpTier(4)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedTpTier === 4 
+                      ? "bg-emerald-950/30 border-emerald-400 shadow-md shadow-emerald-950/40 ring-1 ring-emerald-400/50" 
+                      : "bg-slate-950 border-cyan-500/20 hover:border-cyan-400/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-cyan-400 uppercase flex items-center gap-1">
+                      <span>4th Take Profit</span>
+                      <span className="text-[8px] text-cyan-300 font-bold">(+10 from TP1)</span>
+                    </span>
+                    {selectedTpTier === 4 ? (
+                      <span className="text-[8px] font-mono font-extrabold bg-cyan-400 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-cyan-300 block font-mono">
+                    ${tp4Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-1.5 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-cyan-300 font-bold">+{activeTp4Pips} Pips (+10p)</span>
+                    {tp4Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        +{formatCurrencyAmount(tp4Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                    <span>Scale-Out: 10% Vol</span>
+                    <span className="text-cyan-400/80 font-bold">Extended Target 1</span>
+                  </div>
+                </div>
+
+                {/* 5th Take Profit (+20 from 1st TP) */}
+                <div 
+                  onClick={() => setSelectedTpTier(5)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedTpTier === 5 
+                      ? "bg-emerald-950/30 border-emerald-400 shadow-md shadow-emerald-950/40 ring-1 ring-emerald-400/50" 
+                      : "bg-slate-950 border-cyan-500/20 hover:border-cyan-400/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-cyan-400 uppercase flex items-center gap-1">
+                      <span>5th Take Profit</span>
+                      <span className="text-[8px] text-cyan-300 font-bold">(+20 from TP1)</span>
+                    </span>
+                    {selectedTpTier === 5 ? (
+                      <span className="text-[8px] font-mono font-extrabold bg-cyan-400 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-cyan-300 block font-mono">
+                    ${tp5Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-1.5 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-cyan-300 font-bold">+{activeTp5Pips} Pips (+20p)</span>
+                    {tp5Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        +{formatCurrencyAmount(tp5Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                    <span>Scale-Out: 10% Vol</span>
+                    <span className="text-cyan-400/80 font-bold">Extended Target 2</span>
+                  </div>
+                </div>
+
+                {/* 6th Take Profit (+40 from 1st TP) */}
+                <div 
+                  onClick={() => setSelectedTpTier(6)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer relative ${
+                    selectedTpTier === 6 
+                      ? "bg-purple-950/30 border-purple-400 shadow-md shadow-purple-950/40 ring-1 ring-purple-400/50" 
+                      : "bg-slate-950 border-purple-500/20 hover:border-purple-400/50 hover:bg-slate-900/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-purple-400 uppercase flex items-center gap-1">
+                      <span>6th Take Profit</span>
+                      <span className="text-[8px] text-purple-300 font-bold">(+40 from TP1)</span>
+                    </span>
+                    {selectedTpTier === 6 ? (
+                      <span className="text-[8px] font-mono font-extrabold bg-purple-400 text-slate-950 px-1.5 py-0.2 rounded uppercase">
+                        ACTIVE ORDER
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500 hover:text-slate-300">Click to Select</span>
+                    )}
+                  </div>
+                  <span className="text-base font-extrabold text-purple-300 block font-mono">
+                    ${tp6Price.toLocaleString(undefined, { minimumFractionDigits: assetDecimals })}
+                  </span>
+                  <div className="mt-2 pt-1.5 border-t border-slate-900 flex justify-between items-center text-[10.5px] font-mono">
+                    <span className="text-purple-300 font-bold">+{activeTp6Pips} Pips (+40p)</span>
+                    {tp6Metrics && (
+                      <span className="text-slate-300 font-bold">
+                        +{formatCurrencyAmount(tp6Metrics.pnlCurrency, selectedCurrency)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[8.5px] text-slate-500 font-mono">
+                    <span>Scale-Out: 5% Vol</span>
+                    <span className="text-purple-400/80 font-bold">Macro Home-Run Runner</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Strict Risk & Money Management Protocol Box */}
+              <div className="p-3 bg-slate-950/90 border border-slate-800 rounded-xl space-y-2 font-mono text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                    <span className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                      Trading Rules, Risk & Money Management Protocol
+                    </span>
+                  </div>
+                  <span className="text-[9.5px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold">
+                    Risk Capped at 1.0% · 100% Position Scale-Out Enforced
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[10px]">
+                  <div className="p-2 bg-slate-900/60 rounded-lg border border-slate-850">
+                    <span className="text-slate-400 font-bold block uppercase text-[9px] text-amber-400">1. Breakeven Protection</span>
+                    <p className="text-slate-300 mt-1 leading-snug">
+                      As soon as <strong>1st TP (+{activeTp1Pips}p)</strong> is hit, immediately move Stop Loss to Entry (+1 pip). Trade is guaranteed 100% risk-free.
+                    </p>
+                  </div>
+
+                  <div className="p-2 bg-slate-900/60 rounded-lg border border-slate-850">
+                    <span className="text-slate-400 font-bold block uppercase text-[9px] text-emerald-400">2. Scaled Volume Distribution</span>
+                    <p className="text-slate-300 mt-1 leading-snug">
+                      Exit <strong>30% @ TP1</strong> · <strong>25% @ TP2</strong> · <strong>20% @ TP3</strong> · <strong>10% @ TP4</strong> · <strong>10% @ TP5</strong> · <strong>5% @ TP6</strong> (100% total).
+                    </p>
+                  </div>
+
+                  <div className="p-2 bg-slate-900/60 rounded-lg border border-slate-850">
+                    <span className="text-slate-400 font-bold block uppercase text-[9px] text-cyan-400">3. Dynamic Trailing Stop</span>
+                    <p className="text-slate-300 mt-1 leading-snug">
+                      Trail Stop Loss behind each preceding TP level once filled. Locks in cumulative gains without risking initial principal.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. COMPREHENSIVE MARKET STRUCTURE CONSOLE (Support S1-S3, Resistance R1-R3, HH/LL levels, and Reversal points) */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-blue-500/30 space-y-4 font-mono shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-blue-400" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    Market Structure, Support & Resistance Matrix
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded text-[9.5px] font-mono font-black uppercase border ${
+                    structureData.highLow.structureState.includes("BULLISH") 
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                      : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                  }`}>
+                    {structureData.highLow.structureState}
+                  </span>
+                </div>
+              </div>
+
+              {/* Support & Resistance Levels Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {/* POINTS OF SUPPORT */}
+                <div className="bg-slate-900/90 border border-emerald-500/20 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                      Points of Support (S1 · S2 · S3)
+                    </span>
+                    <span className="text-[9px] text-slate-500">Buy-Side Demand</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-850">
+                      <div>
+                        <span className="text-emerald-400 font-bold block">S1: ${structureData.support.s1.toFixed(assetDecimals)}</span>
+                        <span className="text-[9px] text-slate-400">{structureData.support.s1Label || "Immediate Dynamic Shelf"}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold">
+                        -{structureData.support.s1Pips} Pips
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-850">
+                      <div>
+                        <span className="text-emerald-400 font-bold block">S2: ${structureData.support.s2.toFixed(assetDecimals)}</span>
+                        <span className="text-[9px] text-slate-400">{structureData.support.s2Label || "Institutional Order Block Demand"}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold">
+                        -{structureData.support.s2Pips} Pips
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-850">
+                      <div>
+                        <span className="text-emerald-400 font-bold block">S3: ${structureData.support.s3.toFixed(assetDecimals)}</span>
+                        <span className="text-[9px] text-slate-400">{structureData.support.s3Label || "Major Macro Invalidation Base"}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold">
+                        -{structureData.support.s3Pips} Pips
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* POINTS OF RESISTANCE */}
+                <div className="bg-slate-900/90 border border-rose-500/20 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-rose-400" />
+                      Points of Resistance (R1 · R2 · R3)
+                    </span>
+                    <span className="text-[9px] text-slate-500">Sell-Side Supply</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-850">
+                      <div>
+                        <span className="text-rose-400 font-bold block">R1: ${structureData.resistance.r1.toFixed(assetDecimals)}</span>
+                        <span className="text-[9px] text-slate-400">{structureData.resistance.r1Label || "Immediate Dynamic Cap"}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 font-bold">
+                        +{structureData.resistance.r1Pips} Pips
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-850">
+                      <div>
+                        <span className="text-rose-400 font-bold block">R2: ${structureData.resistance.r2.toFixed(assetDecimals)}</span>
+                        <span className="text-[9px] text-slate-400">{structureData.resistance.r2Label || "Institutional Supply Block"}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 font-bold">
+                        +{structureData.resistance.r2Pips} Pips
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 bg-slate-950 rounded-lg border border-slate-850">
+                      <div>
+                        <span className="text-rose-400 font-bold block">R3: ${structureData.resistance.r3.toFixed(assetDecimals)}</span>
+                        <span className="text-[9px] text-slate-400">{structureData.resistance.r3Label || "Macro Range High Liquidity Pool"}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 font-bold">
+                        +{structureData.resistance.r3Pips} Pips
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* HH / LL Levels & Key Reversal Points */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+                {/* HIGHER HIGH / LOWER LOW LEVELS */}
+                <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+                    <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <BarChart2 className="h-3.5 w-3.5 text-cyan-400" />
+                      HH & LL Structural Levels
+                    </span>
+                    <span className="text-[9px] text-slate-400">Swing Points</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 bg-slate-950 rounded border border-slate-850">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Higher High (HH)</span>
+                      <span className="text-white font-bold block mt-0.5">${structureData.highLow.higherHigh.toFixed(assetDecimals)}</span>
+                      <span className="text-[8.5px] text-emerald-400 block mt-0.5">Bullish Target / Breakout</span>
+                    </div>
+
+                    <div className="p-2 bg-slate-950 rounded border border-slate-850">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Higher Low (HL)</span>
+                      <span className="text-white font-bold block mt-0.5">${structureData.highLow.higherLow.toFixed(assetDecimals)}</span>
+                      <span className="text-[8.5px] text-cyan-400 block mt-0.5">Trend Protected Base</span>
+                    </div>
+
+                    <div className="p-2 bg-slate-950 rounded border border-slate-850">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Lower High (LH)</span>
+                      <span className="text-white font-bold block mt-0.5">${structureData.highLow.lowerHigh.toFixed(assetDecimals)}</span>
+                      <span className="text-[8.5px] text-amber-400 block mt-0.5">Bearish Defense Pivot</span>
+                    </div>
+
+                    <div className="p-2 bg-slate-950 rounded border border-slate-850">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Lower Low (LL)</span>
+                      <span className="text-white font-bold block mt-0.5">${structureData.highLow.lowerLow.toFixed(assetDecimals)}</span>
+                      <span className="text-[8.5px] text-rose-400 block mt-0.5">Bearish Expansion Target</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* KEY REVERSAL POINTS & CHoCH / BOS TRIGGERS */}
+                <div className="p-3 bg-slate-900 rounded-lg border border-purple-500/20 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+                    <span className="text-[10px] text-purple-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5 text-purple-400 animate-spin" />
+                      Key Reversal & Invalidation Points
+                    </span>
+                    <span className="text-[9px] text-purple-300 font-bold">{structureData.reversal.reversalType}</span>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between p-1.5 bg-slate-950 rounded border border-slate-850">
+                      <div>
+                        <span className="text-[9.5px] text-slate-400 block">CHoCH (Change of Character):</span>
+                        <span className="text-white font-bold">${structureData.reversal.chochLevel.toFixed(assetDecimals)}</span>
+                      </div>
+                      <span className="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                        Trend Flip Trigger
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-1.5 bg-slate-950 rounded border border-slate-850">
+                      <div>
+                        <span className="text-[9.5px] text-slate-400 block">BOS (Break of Structure):</span>
+                        <span className="text-white font-bold">${structureData.reversal.bosLevel.toFixed(assetDecimals)}</span>
+                      </div>
+                      <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                        Continuation Trigger
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-1.5 bg-slate-950 rounded border border-slate-850">
+                      <div>
+                        <span className="text-[9.5px] text-slate-400 block">Reversal Pivot (Protected Invalidation):</span>
+                        <span className="text-purple-300 font-extrabold">${structureData.reversal.reversalPivot.toFixed(assetDecimals)}</span>
+                      </div>
+                      <span className="text-[9px] text-purple-300 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
+                        ±{structureData.reversal.invalidationThreshold}p Buffer
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-[9.5px] text-slate-400 leading-snug pt-1 border-t border-slate-850">
+                    {structureData.reversal.explanation}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. DEDICATED PIP & MONETARY PNL CALCULATION SUMMARY BOX */}
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 font-mono">
               <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
                   <Calculator className="h-4 w-4 text-emerald-400" />
-                  <span>Pip Distance & Financial Profit/Loss Calculation</span>
+                  <span>Active Execution Selection & Risk/Reward Summary</span>
                 </div>
                 <span className="text-[10px] bg-slate-900 text-emerald-400 px-2 py-0.5 rounded border border-slate-800 font-bold">
                   {selectedCurrency.flag} {selectedCurrency.code} ({selectedCurrency.symbol}) @ {lotSize} Lot
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2 bg-rose-500/5 border border-rose-500/20 rounded-lg">
-                  <span className="text-[9px] text-rose-400 block font-bold uppercase">Stop Loss</span>
-                  <span className="text-xs font-bold text-rose-400 block my-0.5">
-                    {slMetrics?.pips} Pips
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-rose-500/5 border border-rose-500/30 rounded-xl space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-rose-400 uppercase font-bold">Active Selected SL ({selectedSlTier}st/nd/rd SL)</span>
+                    <span className="text-xs font-bold text-rose-400 font-mono">-{activeSlMetrics?.pips} Pips</span>
+                  </div>
+                  <span className="text-base font-bold text-rose-300 block font-mono">
+                    ${activeSelectedSlPrice.toFixed(assetDecimals)}
                   </span>
-                  <span className="text-[10px] text-slate-300 block font-bold">
-                    -{formatCurrencyAmount(slMetrics?.pnlCurrency || 0, selectedCurrency)}
-                  </span>
+                  <div className="flex justify-between items-center pt-1.5 border-t border-rose-500/20 text-[11px]">
+                    <span className="text-slate-400">Max Projected Loss:</span>
+                    <span className="text-rose-400 font-bold font-mono">
+                      -{formatCurrencyAmount(activeSlMetrics?.pnlCurrency || 0, selectedCurrency)} ({activeSlMetrics?.pnlPercentOfBalance.toFixed(1)}%)
+                    </span>
+                  </div>
                 </div>
 
-                <div className="p-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-                  <span className="text-[9px] text-emerald-400 block font-bold uppercase">TP Tier 1</span>
-                  <span className="text-xs font-bold text-emerald-400 block my-0.5">
-                    +{tp1Metrics?.pips} Pips
+                <div className="p-3 bg-emerald-500/5 border border-emerald-500/30 rounded-xl space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-emerald-400 uppercase font-bold">
+                      Active Selected TP ({selectedTpTier === 1 ? '1st TP' : selectedTpTier === 2 ? '2nd TP' : selectedTpTier === 3 ? '3rd TP' : selectedTpTier === 4 ? '4th TP (+10)' : selectedTpTier === 5 ? '5th TP (+20)' : '6th TP (+40)'})
+                    </span>
+                    <span className="text-xs font-bold text-emerald-400 font-mono">+{activeTpMetrics?.pips} Pips</span>
+                  </div>
+                  <span className="text-base font-bold text-emerald-300 block font-mono">
+                    ${activeSelectedTpPrice.toFixed(assetDecimals)}
                   </span>
-                  <span className="text-[10px] text-slate-300 block font-bold">
-                    +{formatCurrencyAmount(tp1Metrics?.pnlCurrency || 0, selectedCurrency)}
-                  </span>
-                </div>
-
-                <div className="p-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-                  <span className="text-[9px] text-emerald-400 block font-bold uppercase">TP Tier 2</span>
-                  <span className="text-xs font-bold text-emerald-400 block my-0.5">
-                    +{tp2Metrics?.pips} Pips
-                  </span>
-                  <span className="text-[10px] text-slate-300 block font-bold">
-                    +{formatCurrencyAmount(tp2Metrics?.pnlCurrency || 0, selectedCurrency)}
-                  </span>
+                  <div className="flex justify-between items-center pt-1.5 border-t border-emerald-500/20 text-[11px]">
+                    <span className="text-slate-400">Target Projected Profit:</span>
+                    <span className="text-emerald-400 font-bold font-mono">
+                      +{formatCurrencyAmount(activeTpMetrics?.pnlCurrency || 0, selectedCurrency)} (+{activeTpMetrics?.pnlPercentOfBalance.toFixed(1)}%)
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

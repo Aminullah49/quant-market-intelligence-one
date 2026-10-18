@@ -40,21 +40,28 @@ export default function AssetSwitcherBar({
 
   // Assets to display in the horizontal scrollable bar
   const visibleBarAssets = useMemo(() => {
+    let list: MarketAsset[] = [];
     if (activeCategory === "Favorites") {
-      return favoriteAssets;
+      list = favoriteAssets;
+    } else if (activeCategory === "All") {
+      list = assets;
+    } else if (activeCategory === "Futures") {
+      list = assets.filter(a => a && (a.category === "Indices Futures" || a.subclass?.includes("Future")));
+    } else {
+      list = assets.filter(a => a && a.category === activeCategory);
     }
-    if (activeCategory === "All") {
-      return assets;
-    }
-    if (activeCategory === "Futures") {
-      return assets.filter(a => a && (a.category === "Indices Futures" || a.subclass?.includes("Future")));
-    }
-    return assets.filter(a => a && a.category === activeCategory);
+    const map = new Map<string, MarketAsset>();
+    list.forEach(a => {
+      if (a && a.symbol && !map.has(a.symbol)) {
+        map.set(a.symbol, a);
+      }
+    });
+    return Array.from(map.values());
   }, [activeCategory, assets, favoriteAssets]);
 
   // Modal filtered assets
   const modalFilteredAssets = useMemo(() => {
-    return assets.filter(a => {
+    const list = assets.filter(a => {
       if (!a) return false;
       if (modalCategoryFilter !== "All" && a.category !== modalCategoryFilter) {
         if (modalCategoryFilter === "Futures" && (a.category === "Indices Futures" || a.subclass?.includes("Future"))) {
@@ -72,6 +79,13 @@ export default function AssetSwitcherBar({
         (a.country && a.country.toLowerCase().includes(q))
       );
     });
+    const map = new Map<string, MarketAsset>();
+    list.forEach(a => {
+      if (a && a.symbol && !map.has(a.symbol)) {
+        map.set(a.symbol, a);
+      }
+    });
+    return Array.from(map.values());
   }, [assets, modalCategoryFilter, searchQuery]);
 
   return (

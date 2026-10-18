@@ -1499,23 +1499,74 @@ export default function ChartAI({
                   {activeSetup ? activeSetup.entryZone : `${selectedAsset.price.toFixed(getDecimals(selectedAsset))} - ${(selectedAsset.price * 1.0015).toFixed(getDecimals(selectedAsset))}`}
                 </span>
               </div>
-              <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
-                <span className="text-rose-400/80 font-mono font-bold">Stop Loss</span>
-                <span className="font-bold text-rose-400 font-mono">
-                  {activeSetup ? activeSetup.stopLoss.toFixed(getDecimals(selectedAsset)) : (selectedAsset.price * 0.995).toFixed(getDecimals(selectedAsset))}
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
-                <span className="text-emerald-400/80 font-mono font-bold">Take Profit 1</span>
-                <span className="font-bold text-emerald-400 font-mono">
-                  {activeSetup ? activeSetup.takeProfit1.toFixed(getDecimals(selectedAsset)) : (selectedAsset.price * 1.01).toFixed(getDecimals(selectedAsset))}
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
-                <span className="text-emerald-400/80 font-mono font-bold">Take Profit 2</span>
-                <span className="font-bold text-emerald-400 font-mono">
-                  {activeSetup ? activeSetup.takeProfit2.toFixed(getDecimals(selectedAsset)) : (selectedAsset.price * 1.02).toFixed(getDecimals(selectedAsset))}
-                </span>
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                  <span className="text-rose-400 font-mono font-bold text-[10.5px]">1st Stop Loss</span>
+                  <span className="font-bold text-rose-400 font-mono text-[10.5px]">
+                    {activeSetup ? (activeSetup.stopLoss1 || activeSetup.stopLoss).toFixed(getDecimals(selectedAsset)) : (selectedAsset.price * 0.995).toFixed(getDecimals(selectedAsset))}
+                  </span>
+                </div>
+                {activeSetup?.stopLoss2 && (
+                  <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                    <span className="text-rose-400/80 font-mono text-[10px]">2nd Stop Loss</span>
+                    <span className="font-bold text-rose-400/90 font-mono text-[10.5px]">
+                      {activeSetup.stopLoss2.toFixed(getDecimals(selectedAsset))}
+                    </span>
+                  </div>
+                )}
+                {activeSetup?.stopLoss3 && (
+                  <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                    <span className="text-rose-400/70 font-mono text-[10px]">3rd Stop Loss</span>
+                    <span className="font-bold text-rose-400/80 font-mono text-[10.5px]">
+                      {activeSetup.stopLoss3.toFixed(getDecimals(selectedAsset))}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                  <span className="text-emerald-400 font-mono font-bold text-[10.5px]">1st Take Profit</span>
+                  <span className="font-bold text-emerald-400 font-mono text-[10.5px]">
+                    {activeSetup ? activeSetup.takeProfit1.toFixed(getDecimals(selectedAsset)) : (selectedAsset.price * 1.01).toFixed(getDecimals(selectedAsset))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                  <span className="text-emerald-400/90 font-mono text-[10px]">2nd Take Profit</span>
+                  <span className="font-bold text-emerald-400 font-mono text-[10.5px]">
+                    {activeSetup ? activeSetup.takeProfit2.toFixed(getDecimals(selectedAsset)) : (selectedAsset.price * 1.02).toFixed(getDecimals(selectedAsset))}
+                  </span>
+                </div>
+                {activeSetup?.takeProfit3 && (
+                  <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                    <span className="text-emerald-400/80 font-mono text-[10px]">3rd Take Profit</span>
+                    <span className="font-bold text-emerald-400 font-mono text-[10.5px]">
+                      {activeSetup.takeProfit3.toFixed(getDecimals(selectedAsset))}
+                    </span>
+                  </div>
+                )}
+                {activeSetup?.takeProfit4 && (
+                  <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                    <span className="text-cyan-400 font-mono text-[10px]">4th TP (+10)</span>
+                    <span className="font-bold text-cyan-300 font-mono text-[10.5px]">
+                      {activeSetup.takeProfit4.toFixed(getDecimals(selectedAsset))}
+                    </span>
+                  </div>
+                )}
+                {activeSetup?.takeProfit5 && (
+                  <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                    <span className="text-cyan-400 font-mono text-[10px]">5th TP (+20)</span>
+                    <span className="font-bold text-cyan-300 font-mono text-[10.5px]">
+                      {activeSetup.takeProfit5.toFixed(getDecimals(selectedAsset))}
+                    </span>
+                  </div>
+                )}
+                {activeSetup?.takeProfit6 && (
+                  <div className="flex items-center justify-between py-1 bg-slate-950/60 px-2 rounded-lg border border-slate-800/40">
+                    <span className="text-purple-400 font-mono text-[10px]">6th TP (+40)</span>
+                    <span className="font-bold text-purple-300 font-mono text-[10.5px]">
+                      {activeSetup.takeProfit6.toFixed(getDecimals(selectedAsset))}
+                    </span>
+                  </div>
+                )}
               </div>
               
               <div className="h-[1px] bg-slate-800 my-2" />
@@ -2109,22 +2160,98 @@ export default function ChartAI({
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
-                <div className="p-2 bg-slate-950 border border-slate-800 rounded-lg">
-                  <div className="text-[9px] text-slate-500">ENTRY ZONE</div>
-                  <div className="font-extrabold text-slate-200 mt-1">{activeSetup.entryZone}</div>
+              {/* Entry Zone Banner */}
+              <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between text-xs font-mono">
+                <span className="text-slate-400 text-[11px] font-bold">ENTRY EXECUTION ZONE:</span>
+                <span className="font-extrabold text-white text-sm">{activeSetup.entryZone}</span>
+              </div>
+
+              {/* 3-Tier SL & TP Matrix */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+                {/* Stop Loss Column */}
+                <div className="p-3 bg-slate-950 border border-rose-500/20 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-rose-400 uppercase border-b border-slate-900 pb-1">
+                    <span>Stop Loss Tiers (1st · 2nd · 3rd)</span>
+                    <span className="text-slate-500 text-[9px]">5-10p Interval</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                      <span className="text-slate-400 text-[10.5px]">1st SL (Micro Invalidation):</span>
+                      <span className="font-extrabold text-rose-400">
+                        ${(activeSetup.stopLoss1 || activeSetup.stopLoss).toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                      </span>
+                    </div>
+                    {activeSetup.stopLoss2 && (
+                      <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                        <span className="text-slate-400 text-[10.5px]">2nd SL (Structure Pivot):</span>
+                        <span className="font-bold text-rose-400/90">
+                          ${activeSetup.stopLoss2.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                        </span>
+                      </div>
+                    )}
+                    {activeSetup.stopLoss3 && (
+                      <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                        <span className="text-slate-400 text-[10.5px]">3rd SL (Safety Buffer):</span>
+                        <span className="font-bold text-rose-400/80">
+                          ${activeSetup.stopLoss3.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="p-2 bg-slate-950 border border-rose-500/15 rounded-lg">
-                  <div className="text-[9px] text-rose-400">STOP LOSS</div>
-                  <div className="font-extrabold text-rose-400 mt-1">{activeSetup.stopLoss.toFixed(selectedAsset.price < 50 ? 4 : 2)}</div>
-                </div>
-                <div className="p-2 bg-slate-950 border border-emerald-500/15 rounded-lg">
-                  <div className="text-[9px] text-emerald-400">TARGET 1</div>
-                  <div className="font-extrabold text-emerald-400 mt-1">{activeSetup.takeProfit1.toFixed(selectedAsset.price < 50 ? 4 : 2)}</div>
-                </div>
-                <div className="p-2 bg-slate-950 border border-emerald-500/15 rounded-lg">
-                  <div className="text-[9px] text-emerald-400">TARGET 2</div>
-                  <div className="font-extrabold text-emerald-400 mt-1">{activeSetup.takeProfit2.toFixed(selectedAsset.price < 50 ? 4 : 2)}</div>
+
+                {/* Take Profit Column */}
+                <div className="p-3 bg-slate-950 border border-emerald-500/20 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-emerald-400 uppercase border-b border-slate-900 pb-1">
+                    <span>Take Profit Tiers (1st - 6th TP)</span>
+                    <span className="text-emerald-400 font-mono text-[9px]">+10, +20, +40 Extended</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                      <span className="text-slate-400 text-[10.5px]">1st TP (30% Scale):</span>
+                      <span className="font-extrabold text-emerald-400">
+                        ${activeSetup.takeProfit1.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                      <span className="text-slate-400 text-[10.5px]">2nd TP (25% Scale):</span>
+                      <span className="font-bold text-emerald-400">
+                        ${activeSetup.takeProfit2.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                      </span>
+                    </div>
+                    {activeSetup.takeProfit3 && (
+                      <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                        <span className="text-slate-400 text-[10.5px]">3rd TP (20% Scale):</span>
+                        <span className="font-bold text-emerald-300">
+                          ${activeSetup.takeProfit3.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                        </span>
+                      </div>
+                    )}
+                    {activeSetup.takeProfit4 && (
+                      <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                        <span className="text-cyan-400 text-[10.5px]">4th TP (+10p · 10%):</span>
+                        <span className="font-bold text-cyan-300">
+                          ${activeSetup.takeProfit4.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                        </span>
+                      </div>
+                    )}
+                    {activeSetup.takeProfit5 && (
+                      <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                        <span className="text-cyan-400 text-[10.5px]">5th TP (+20p · 10%):</span>
+                        <span className="font-bold text-cyan-300">
+                          ${activeSetup.takeProfit5.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                        </span>
+                      </div>
+                    )}
+                    {activeSetup.takeProfit6 && (
+                      <div className="flex justify-between items-center bg-slate-900/60 p-1.5 rounded">
+                        <span className="text-purple-400 text-[10.5px]">6th TP (+40p · 5%):</span>
+                        <span className="font-bold text-purple-300">
+                          ${activeSetup.takeProfit6.toFixed(selectedAsset.price < 50 ? 4 : 2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

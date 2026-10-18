@@ -45,33 +45,35 @@ export default function App() {
   const [currentSection, setCurrentSection] = useState<SectionType>('chartai');
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'fallback'>('connecting');
   const [assets, setAssets] = useState<MarketAsset[]>(() => {
+    const finalMap = new Map<string, MarketAsset>();
     const saved = localStorage.getItem("trader_market_assets");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // De-duplicate parsed items to ensure no duplicate symbols
-          const uniqueParsedMap = new Map<string, any>();
           parsed.forEach((item: any) => {
-            if (item && item.symbol) {
-              uniqueParsedMap.set(item.symbol, item);
+            if (item && item.symbol && typeof item.symbol === "string") {
+              finalMap.set(item.symbol, item);
             }
           });
-          const uniqueParsed = Array.from(uniqueParsedMap.values());
-
-          // Auto-merge with DEFAULT_ASSETS to ensure any new assets added in the codebase are automatically available!
-          const parsedSymbols = new Set(uniqueParsed.map((a: any) => a?.symbol).filter(Boolean));
-          const missingDefaults = DEFAULT_ASSETS.filter(a => a && a.symbol && !parsedSymbols.has(a.symbol));
-          if (missingDefaults.length > 0) {
-            return [...uniqueParsed, ...missingDefaults];
-          }
-          return uniqueParsed;
         }
       } catch (e) {
         // ignore
       }
     }
-    return DEFAULT_ASSETS;
+
+    // Auto-merge with DEFAULT_ASSETS to ensure all platform assets are present without duplicate keys
+    DEFAULT_ASSETS.forEach(item => {
+      if (item && item.symbol && !finalMap.has(item.symbol)) {
+        finalMap.set(item.symbol, item);
+      }
+    });
+
+    const cleanAssets = Array.from(finalMap.values());
+    try {
+      localStorage.setItem("trader_market_assets", JSON.stringify(cleanAssets));
+    } catch {}
+    return cleanAssets;
   });
   const [selectedAsset, setSelectedAsset] = useState<MarketAsset>(() => {
     const savedAssets = localStorage.getItem("trader_market_assets");
@@ -96,14 +98,17 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const uniqueFavs = Array.from(new Set(parsed.filter(Boolean)));
+          return uniqueFavs;
+        }
       } catch (e) {}
     }
     return ["XAU/USD", "EUR/USD", "BTC/USD", "US30", "GBP/USD", "NVDA", "ETH/USD"];
   });
 
   useEffect(() => {
-    localStorage.setItem("trader_favorite_symbols", JSON.stringify(favoriteSymbols));
+    localStorage.setItem("trader_favorite_symbols", JSON.stringify(Array.from(new Set(favoriteSymbols))));
   }, [favoriteSymbols]);
 
   const handleToggleFavorite = (symbol: string) => {
@@ -925,7 +930,8 @@ export default function App() {
     setTradeSetup(generateDynamicSetup(
       selectedAsset,
       selectedAsset.bullishProb > selectedAsset.bearishProb ? 'BUY' : 'SELL',
-      traderProfile.timeframe
+      traderProfile.timeframe,
+      traderProfile.style
     ));
 
     // 2. Proactively trigger high-fidelity real-time analyses and trade setups from the backend
@@ -982,6 +988,8 @@ export default function App() {
             balance: 10000,
             userLocalTime: localTimeStr,
             timeframe: traderProfile.timeframe,
+            style: traderProfile.style,
+            tradingStyle: traderProfile.style,
             forceAI: aiScanMode === 'gemini',
             useQuantEngine: aiScanMode === 'quant',
             aiScanMode: aiScanMode

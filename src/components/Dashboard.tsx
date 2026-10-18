@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { MarketAsset } from "../types";
 import { ECONOMIC_EVENTS } from "../data";
 import { calculateUnifiedScore } from "../utils";
@@ -256,47 +256,64 @@ export default function Dashboard({ assets, onSelectAsset, onNavigate, hasApiKey
     setSelectedCountry("All Countries");
   };
 
-  const filteredAssets = assets.filter(asset => {
-    if (!asset) return false;
-    const meta = getAssetMeta(asset);
+  const filteredAssets = useMemo(() => {
+    const list = assets.filter(asset => {
+      if (!asset) return false;
+      const meta = getAssetMeta(asset);
 
-    // Primary Category Filtering
-    let categoryMatch = false;
-    if (selectedCategory === "All") {
-      categoryMatch = true;
-    } else if (selectedCategory === "Currencies (Forex)") {
-      categoryMatch = asset.category === "Forex";
-    } else if (selectedCategory === "Cryptocurrencies") {
-      categoryMatch = asset.category === "Crypto";
-    } else if (selectedCategory === "Stocks") {
-      categoryMatch = asset.category === "Stocks";
-    } else if (selectedCategory === "Commodities") {
-      categoryMatch = asset.category === "Commodities";
-    } else if (selectedCategory === "Indices") {
-      categoryMatch = asset.category === "Indices";
-    } else if (selectedCategory === "Indices Futures") {
-      categoryMatch = asset.category === "Indices Futures";
-    } else if (selectedCategory === "Bonds") {
-      categoryMatch = asset.category === "Bonds";
-    } else if (selectedCategory === "ETFs") {
-      categoryMatch = asset.category === "ETFs";
-    }
+      // Primary Category Filtering
+      let categoryMatch = false;
+      if (selectedCategory === "All") {
+        categoryMatch = true;
+      } else if (selectedCategory === "Currencies (Forex)") {
+        categoryMatch = asset.category === "Forex";
+      } else if (selectedCategory === "Cryptocurrencies") {
+        categoryMatch = asset.category === "Crypto";
+      } else if (selectedCategory === "Stocks") {
+        categoryMatch = asset.category === "Stocks";
+      } else if (selectedCategory === "Commodities") {
+        categoryMatch = asset.category === "Commodities";
+      } else if (selectedCategory === "Indices") {
+        categoryMatch = asset.category === "Indices";
+      } else if (selectedCategory === "Indices Futures") {
+        categoryMatch = asset.category === "Indices Futures";
+      } else if (selectedCategory === "Bonds") {
+        categoryMatch = asset.category === "Bonds";
+      } else if (selectedCategory === "ETFs") {
+        categoryMatch = asset.category === "ETFs";
+      }
 
-    if (!categoryMatch) return false;
+      if (!categoryMatch) return false;
 
-    // Subclass/Country Filtering
-    if (selectedCountry !== "All Countries") {
-      return meta.country === selectedCountry;
-    }
+      // Subclass/Country Filtering
+      if (selectedCountry !== "All Countries") {
+        return meta.country === selectedCountry;
+      }
 
-    return true;
-  });
+      return true;
+    });
 
-  // Sort assets by confidence to show "best opportunities"
-  const bestOpportunities = [...assets]
-    .filter(Boolean)
-    .sort((a, b) => (b?.confidence || 0) - (a?.confidence || 0))
-    .slice(0, 3);
+    const map = new Map<string, MarketAsset>();
+    list.forEach(a => {
+      if (a && a.symbol && !map.has(a.symbol)) {
+        map.set(a.symbol, a);
+      }
+    });
+    return Array.from(map.values());
+  }, [assets, selectedCategory, selectedCountry]);
+
+  // Sort assets by confidence to show "best opportunities" (strictly unique symbols)
+  const bestOpportunities = useMemo(() => {
+    const map = new Map<string, MarketAsset>();
+    assets.forEach(a => {
+      if (a && a.symbol && !map.has(a.symbol)) {
+        map.set(a.symbol, a);
+      }
+    });
+    return Array.from(map.values())
+      .sort((a, b) => (b?.confidence || 0) - (a?.confidence || 0))
+      .slice(0, 3);
+  }, [assets]);
 
   const countriesForSubFilter = getCountryListForCategory(selectedCategory);
 

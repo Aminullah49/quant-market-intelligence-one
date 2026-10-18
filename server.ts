@@ -1785,11 +1785,15 @@ For each drawing, you must provide:
 
 // 3. GENERATE TRADE SETUP ENDPOINT
 app.post("/api/generate-setup", async (req, res) => {
-  const { market, direction, currentPrice, riskPercent, balance, userLocalTime, forceAI, timeframe, useQuantEngine, engine, aiScanMode } = req.body;
+  const { market, direction, currentPrice, riskPercent, balance, userLocalTime, forceAI, timeframe, useQuantEngine, engine, aiScanMode, style, tradingStyle } = req.body;
   const client = getGeminiClient();
 
   const priceNum = Number(currentPrice) || 1.0850;
-  const isCrypto = /BTC|ETH|SOL|XRP|DOGE|PEPE|SHIB|ADA|DOT|AVAX|LINK|NEAR|BNB|UNI|LTC|BCH|SUI|APT|ICP|RENDER|STX|CRYPTO/i.test(market || "");
+  const sym = (market || "").toUpperCase();
+  const isGold = sym.includes("XAU") || sym.includes("GOLD");
+  const isCrypto = /BTC|ETH|SOL|XRP|DOGE|PEPE|SHIB|ADA|DOT|AVAX|LINK|NEAR|BNB|UNI|LTC|BCH|SUI|APT|ICP|RENDER|STX|CRYPTO/i.test(sym);
+  const isIndex = /US30|NAS100|SPX|NDX|GER40|DAX|FTSE|DOW/i.test(sym);
+  const isForex = !isGold && !isCrypto && !isIndex && sym.includes("/");
   
   let decimals = 2;
   if (priceNum < 0.001) decimals = 7;
@@ -1800,34 +1804,158 @@ app.post("/api/generate-setup", async (req, res) => {
 
   const directionStr = direction || "BUY";
   const tf = timeframe || "H4";
+  const effectiveStyle: 'Scalper' | 'Day Trader' | 'Swing Trader' =
+    tradingStyle === 'Scalper' || style === 'Scalper' || tf === 'M1' || tf === 'M5'
+      ? 'Scalper'
+      : tradingStyle === 'Day Trader' || style === 'Day Trader' || tf === 'M15' || tf === 'H1'
+      ? 'Day Trader'
+      : 'Swing Trader';
 
-  let tfCoeff = 0.025;
-  if (isCrypto) {
-    switch (tf) {
-      case "M1": tfCoeff = 0.008; break;
-      case "M5": tfCoeff = 0.012; break;
-      case "M15": tfCoeff = 0.018; break;
-      case "H1": tfCoeff = 0.028; break;
-      case "H4": tfCoeff = 0.045; break;
-      case "D1": tfCoeff = 0.075; break;
-      case "W1": tfCoeff = 0.12; break;
-      case "MN": tfCoeff = 0.18; break;
+  let pipFactor = 0.0001;
+  let pipUnit = "Pips";
+  let slDist = 0;
+  let tp1Dist = 0;
+  let tp2Dist = 0;
+  let holdingMinutes = 45;
+  let elapsedMinutes = 10;
+  let entryOffsetMinutes = 5;
+  let isIntraday = true;
+
+  if (isGold) {
+    pipFactor = 0.10;
+    pipUnit = "Pips";
+    if (effectiveStyle === "Scalper") {
+      slDist = Number((2.60 + (priceNum % 5) * 0.15).toFixed(decimals));
+      tp1Dist = Number((slDist * 1.9).toFixed(decimals));
+      tp2Dist = Number((slDist * 3.4).toFixed(decimals));
+      holdingMinutes = 12;
+      elapsedMinutes = 3;
+      entryOffsetMinutes = 2;
+    } else if (effectiveStyle === "Day Trader") {
+      slDist = Number((8.20 + (priceNum % 10) * 0.25).toFixed(decimals));
+      tp1Dist = Number((slDist * 1.85).toFixed(decimals));
+      tp2Dist = Number((slDist * 3.2).toFixed(decimals));
+      holdingMinutes = 180;
+      elapsedMinutes = 45;
+      entryOffsetMinutes = 20;
+    } else {
+      slDist = Number((24.00 + (priceNum % 20) * 0.40).toFixed(decimals));
+      tp1Dist = Number((slDist * 2.0).toFixed(decimals));
+      tp2Dist = Number((slDist * 3.5).toFixed(decimals));
+      holdingMinutes = 2880;
+      elapsedMinutes = 720;
+      entryOffsetMinutes = 120;
+      isIntraday = false;
+    }
+  } else if (isForex) {
+    const isJpy = sym.includes("JPY");
+    pipFactor = isJpy ? 0.01 : 0.0001;
+    pipUnit = "Pips";
+    if (effectiveStyle === "Scalper") {
+      const pips = 9;
+      slDist = Number((pips * pipFactor).toFixed(decimals));
+      tp1Dist = Number((slDist * 1.9).toFixed(decimals));
+      tp2Dist = Number((slDist * 3.3).toFixed(decimals));
+      holdingMinutes = 15;
+      elapsedMinutes = 4;
+      entryOffsetMinutes = 3;
+    } else if (effectiveStyle === "Day Trader") {
+      const pips = 28;
+      slDist = Number((pips * pipFactor).toFixed(decimals));
+      tp1Dist = Number((slDist * 1.85).toFixed(decimals));
+      tp2Dist = Number((slDist * 3.0).toFixed(decimals));
+      holdingMinutes = 240;
+      elapsedMinutes = 60;
+      entryOffsetMinutes = 25;
+    } else {
+      const pips = 80;
+      slDist = Number((pips * pipFactor).toFixed(decimals));
+      tp1Dist = Number((slDist * 2.0).toFixed(decimals));
+      tp2Dist = Number((slDist * 3.5).toFixed(decimals));
+      holdingMinutes = 2880;
+      elapsedMinutes = 720;
+      entryOffsetMinutes = 180;
+      isIntraday = false;
+    }
+  } else if (isCrypto) {
+    pipFactor = priceNum > 1000 ? 1.0 : 0.01;
+    pipUnit = "Pts";
+    if (effectiveStyle === "Scalper") {
+      slDist = Number((priceNum * 0.0035).toFixed(decimals));
+      tp1Dist = Number((priceNum * 0.0070).toFixed(decimals));
+      tp2Dist = Number((priceNum * 0.0130).toFixed(decimals));
+      holdingMinutes = 18;
+      elapsedMinutes = 5;
+      entryOffsetMinutes = 3;
+    } else if (effectiveStyle === "Day Trader") {
+      slDist = Number((priceNum * 0.0140).toFixed(decimals));
+      tp1Dist = Number((priceNum * 0.0280).toFixed(decimals));
+      tp2Dist = Number((priceNum * 0.0500).toFixed(decimals));
+      holdingMinutes = 240;
+      elapsedMinutes = 60;
+      entryOffsetMinutes = 25;
+    } else {
+      slDist = Number((priceNum * 0.0380).toFixed(decimals));
+      tp1Dist = Number((priceNum * 0.0800).toFixed(decimals));
+      tp2Dist = Number((priceNum * 0.1400).toFixed(decimals));
+      holdingMinutes = 2880;
+      elapsedMinutes = 720;
+      entryOffsetMinutes = 180;
+      isIntraday = false;
+    }
+  } else if (isIndex) {
+    pipFactor = 1.0;
+    pipUnit = "Pts";
+    if (effectiveStyle === "Scalper") {
+      slDist = Number((24.0).toFixed(decimals));
+      tp1Dist = Number((48.0).toFixed(decimals));
+      tp2Dist = Number((85.0).toFixed(decimals));
+      holdingMinutes = 20;
+      elapsedMinutes = 5;
+      entryOffsetMinutes = 3;
+    } else if (effectiveStyle === "Day Trader") {
+      slDist = Number((75.0).toFixed(decimals));
+      tp1Dist = Number((140.0).toFixed(decimals));
+      tp2Dist = Number((240.0).toFixed(decimals));
+      holdingMinutes = 240;
+      elapsedMinutes = 60;
+      entryOffsetMinutes = 25;
+    } else {
+      slDist = Number((220.0).toFixed(decimals));
+      tp1Dist = Number((440.0).toFixed(decimals));
+      tp2Dist = Number((750.0).toFixed(decimals));
+      holdingMinutes = 2880;
+      elapsedMinutes = 720;
+      entryOffsetMinutes = 180;
+      isIntraday = false;
     }
   } else {
-    switch (tf) {
-      case "M1": tfCoeff = 0.003; break;
-      case "M5": tfCoeff = 0.005; break;
-      case "M15": tfCoeff = 0.008; break;
-      case "H1": tfCoeff = 0.015; break;
-      case "H4": tfCoeff = 0.025; break;
-      case "D1": tfCoeff = 0.045; break;
-      case "W1": tfCoeff = 0.08; break;
-      case "MN": tfCoeff = 0.15; break;
+    pipFactor = 0.01;
+    pipUnit = "Pts";
+    if (effectiveStyle === "Scalper") {
+      slDist = Number((priceNum * 0.0035).toFixed(decimals));
+      tp1Dist = Number((priceNum * 0.0070).toFixed(decimals));
+      tp2Dist = Number((priceNum * 0.0130).toFixed(decimals));
+      holdingMinutes = 15;
+      elapsedMinutes = 4;
+      entryOffsetMinutes = 2;
+    } else if (effectiveStyle === "Day Trader") {
+      slDist = Number((priceNum * 0.0120).toFixed(decimals));
+      tp1Dist = Number((priceNum * 0.0240).toFixed(decimals));
+      tp2Dist = Number((priceNum * 0.0420).toFixed(decimals));
+      holdingMinutes = 180;
+      elapsedMinutes = 45;
+      entryOffsetMinutes = 20;
+    } else {
+      slDist = Number((priceNum * 0.0350).toFixed(decimals));
+      tp1Dist = Number((priceNum * 0.0700).toFixed(decimals));
+      tp2Dist = Number((priceNum * 0.1250).toFixed(decimals));
+      holdingMinutes = 2880;
+      elapsedMinutes = 720;
+      entryOffsetMinutes = 180;
+      isIntraday = false;
     }
   }
-
-  const s1 = Number((priceNum * (1 - tfCoeff * 0.5)).toFixed(decimals));
-  const r1 = Number((priceNum * (1 + tfCoeff * 0.5)).toFixed(decimals));
 
   let stopLossVal = 0;
   let tp1 = 0;
@@ -1835,72 +1963,80 @@ app.post("/api/generate-setup", async (req, res) => {
   let entryZoneStr = "";
 
   if (directionStr === "BUY") {
-    entryZoneStr = `Retest of support block near $${s1.toFixed(decimals)} - $${priceNum.toFixed(decimals)}`;
-    stopLossVal = Number((priceNum * (1 - tfCoeff * 1.0)).toFixed(decimals));
-    tp1 = Number((priceNum * (1 + tfCoeff * 1.8)).toFixed(decimals));
-    tp2 = Number((priceNum * (1 + tfCoeff * 3.2)).toFixed(decimals));
+    const entryLow = Number((priceNum - slDist * 0.3).toFixed(decimals));
+    entryZoneStr = `Retest of support block near $${entryLow.toFixed(decimals)} - $${priceNum.toFixed(decimals)}`;
+    stopLossVal = Number((priceNum - slDist).toFixed(decimals));
+    tp1 = Number((priceNum + tp1Dist).toFixed(decimals));
+    tp2 = Number((priceNum + tp2Dist).toFixed(decimals));
   } else {
-    entryZoneStr = `Retest of supply block near $${priceNum.toFixed(decimals)} - $${r1.toFixed(decimals)}`;
-    stopLossVal = Number((priceNum * (1 + tfCoeff * 1.0)).toFixed(decimals));
-    tp1 = Number((priceNum * (1 - tfCoeff * 1.8)).toFixed(decimals));
-    tp2 = Number((priceNum * (1 - tfCoeff * 3.2)).toFixed(decimals));
+    const entryHigh = Number((priceNum + slDist * 0.3).toFixed(decimals));
+    entryZoneStr = `Retest of supply block near $${priceNum.toFixed(decimals)} - $${entryHigh.toFixed(decimals)}`;
+    stopLossVal = Number((priceNum + slDist).toFixed(decimals));
+    tp1 = Number((priceNum - tp1Dist).toFixed(decimals));
+    tp2 = Number((priceNum - tp2Dist).toFixed(decimals));
   }
 
   const diff = Math.abs(priceNum - stopLossVal);
   const reward1 = Math.abs(tp1 - priceNum);
   const riskRewardRatioVal = diff > 0 ? Number((reward1 / diff).toFixed(1)) : 2.0;
 
-  // Custom localized temporal values that represent professional time targets based on timeframe
+  // Custom localized temporal values that represent professional time targets based on timeframe and style
   const dateObj = new Date();
-  let holdingMinutes = 240; // Default to 4 hours (H4)
-  let elapsedMinutes = 90;
-  let entryOffsetMinutes = 25;
-  let isIntraday = true;
-
-  switch (tf) {
-    case "M1":
-      holdingMinutes = 12; 
-      elapsedMinutes = 3;  
-      entryOffsetMinutes = 2; 
-      break;
-    case "M5":
-      holdingMinutes = 45;
-      elapsedMinutes = 12;
-      entryOffsetMinutes = 8;
-      break;
-    case "M15":
-      holdingMinutes = 120; // 2 hours
-      elapsedMinutes = 30;
-      entryOffsetMinutes = 15;
-      break;
-    case "H1":
-      holdingMinutes = 360; // 6 hours
-      elapsedMinutes = 120;
-      entryOffsetMinutes = 45;
-      break;
-    case "H4":
-      holdingMinutes = 1440; // 24 hours
-      elapsedMinutes = 360;
-      entryOffsetMinutes = 120;
-      break;
-    case "D1":
-      holdingMinutes = 10080; // 7 days (1 week)
-      elapsedMinutes = 2880;  // 2 days
-      entryOffsetMinutes = 720; // 12 hours
-      isIntraday = false;
-      break;
-    case "W1":
-      holdingMinutes = 40320; // 28 days (4 weeks)
-      elapsedMinutes = 10080; // 1 week
-      entryOffsetMinutes = 2880; // 2 days
-      isIntraday = false;
-      break;
-    case "MN":
-      holdingMinutes = 120960; // 12 weeks (~3 months)
-      elapsedMinutes = 40320; // 4 weeks
-      entryOffsetMinutes = 10080; // 1 week
-      isIntraday = false;
-      break;
+  if (effectiveStyle === "Scalper") {
+    holdingMinutes = 15;
+    elapsedMinutes = 4;
+    entryOffsetMinutes = 2;
+    isIntraday = true;
+  } else {
+    holdingMinutes = 240; // Default to 4 hours (H4)
+    elapsedMinutes = 90;
+    entryOffsetMinutes = 25;
+    isIntraday = true;
+    switch (tf) {
+      case "M1":
+        holdingMinutes = 12; 
+        elapsedMinutes = 3;  
+        entryOffsetMinutes = 2; 
+        break;
+      case "M5":
+        holdingMinutes = 45;
+        elapsedMinutes = 12;
+        entryOffsetMinutes = 8;
+        break;
+      case "M15":
+        holdingMinutes = 120; // 2 hours
+        elapsedMinutes = 30;
+        entryOffsetMinutes = 15;
+        break;
+      case "H1":
+        holdingMinutes = 360; // 6 hours
+        elapsedMinutes = 120;
+        entryOffsetMinutes = 45;
+        break;
+      case "H4":
+        holdingMinutes = 1440; // 24 hours
+        elapsedMinutes = 360;
+        entryOffsetMinutes = 120;
+        break;
+      case "D1":
+        holdingMinutes = 10080; // 7 days (1 week)
+        elapsedMinutes = 2880;  // 2 days
+        entryOffsetMinutes = 720; // 12 hours
+        isIntraday = false;
+        break;
+      case "W1":
+        holdingMinutes = 40320; // 28 days (4 weeks)
+        elapsedMinutes = 10080; // 1 week
+        entryOffsetMinutes = 2880; // 2 days
+        isIntraday = false;
+        break;
+      case "MN":
+        holdingMinutes = 120960; // 12 weeks (~3 months)
+        elapsedMinutes = 40320; // 4 weeks
+        entryOffsetMinutes = 10080; // 1 week
+        isIntraday = false;
+        break;
+    }
   }
 
   // Format helper for user-friendly date/time strings
@@ -1927,23 +2063,134 @@ app.post("/api/generate-setup", async (req, res) => {
   const entryTime = new Date(dateObj.getTime() + entryOffsetMinutes * 60 * 1000);
   const endTime = new Date(dateObj.getTime() + holdingMinutes * 60 * 1000);
 
+  const isBuy = directionStr === "BUY";
+  const sl1Val = stopLossVal;
+  const sl2Val = isBuy ? Number((sl1Val - priceNum * 0.0012).toFixed(decimals)) : Number((sl1Val + priceNum * 0.0012).toFixed(decimals));
+  const sl3Val = isBuy ? Number((sl2Val - priceNum * 0.0015).toFixed(decimals)) : Number((sl2Val + priceNum * 0.0015).toFixed(decimals));
+  const tp3 = isBuy ? Number((tp2 + priceNum * 0.0018).toFixed(decimals)) : Number((tp2 - priceNum * 0.0018).toFixed(decimals));
+
+  const tp1PipsVal = Math.max(1, Math.round(Math.abs(tp1 - priceNum) / pipFactor));
+  const tp2PipsVal = Math.max(2, Math.round(Math.abs(tp2 - priceNum) / pipFactor));
+  const tp3PipsVal = Math.max(3, Math.round(Math.abs(tp3 - priceNum) / pipFactor));
+
+  // 3 Additional Take Profits using 1st TP value (+10, +20, +40)
+  const tp4PipsVal = tp1PipsVal + 10;
+  const tp5PipsVal = tp1PipsVal + 20;
+  const tp6PipsVal = tp1PipsVal + 40;
+
+  const tp4 = isBuy ? Number((priceNum + tp4PipsVal * pipFactor).toFixed(decimals)) : Number((priceNum - tp4PipsVal * pipFactor).toFixed(decimals));
+  const tp5 = isBuy ? Number((priceNum + tp5PipsVal * pipFactor).toFixed(decimals)) : Number((priceNum - tp5PipsVal * pipFactor).toFixed(decimals));
+  const tp6 = isBuy ? Number((priceNum + tp6PipsVal * pipFactor).toFixed(decimals)) : Number((priceNum - tp6PipsVal * pipFactor).toFixed(decimals));
+
+  const sl1PipsVal = Math.max(1, Math.round(Math.abs(priceNum - sl1Val) / pipFactor));
+  const sl2PipsVal = Math.max(2, Math.round(Math.abs(priceNum - sl2Val) / pipFactor));
+  const sl3PipsVal = Math.max(3, Math.round(Math.abs(priceNum - sl3Val) / pipFactor));
+
+  const tfCoeff = tf === "M1" ? 0.003 : tf === "M5" ? 0.005 : tf === "M15" ? 0.008 : tf === "H1" ? 0.015 : tf === "H4" ? 0.025 : tf === "D1" ? 0.045 : 0.08;
+  const s1Val = Number((priceNum * (1 - tfCoeff * 0.45)).toFixed(decimals));
+  const s2Val = Number((priceNum * (1 - tfCoeff * 1.25)).toFixed(decimals));
+  const s3Val = Number((priceNum * (1 - tfCoeff * 2.40)).toFixed(decimals));
+  const r1Val = Number((priceNum * (1 + tfCoeff * 0.45)).toFixed(decimals));
+  const r2Val = Number((priceNum * (1 + tfCoeff * 1.25)).toFixed(decimals));
+  const r3Val = Number((priceNum * (1 + tfCoeff * 2.40)).toFixed(decimals));
+
+  const higherHigh = Number((priceNum * (1 + tfCoeff * 1.65)).toFixed(decimals));
+  const higherLow = Number((priceNum * (1 - tfCoeff * 0.85)).toFixed(decimals));
+  const lowerHigh = Number((priceNum * (1 + tfCoeff * 0.85)).toFixed(decimals));
+  const lowerLow = Number((priceNum * (1 - tfCoeff * 1.65)).toFixed(decimals));
+
+  const chochLevel = isBuy ? higherLow : lowerHigh;
+  const bosLevel = isBuy ? higherHigh : lowerLow;
+  const reversalPivot = isBuy ? Number((higherLow - Math.abs(higherLow - s2Val) * 0.4).toFixed(decimals)) : Number((lowerHigh + Math.abs(r2Val - lowerHigh) * 0.4).toFixed(decimals));
+
   const mockSetup = {
     market,
     timeframe: tf,
     direction: directionStr,
     entryZone: entryZoneStr,
-    stopLoss: stopLossVal,
+    stopLoss: sl1Val,
+    stopLoss1: sl1Val,
+    stopLoss2: sl2Val,
+    stopLoss3: sl3Val,
     takeProfit1: tp1,
     takeProfit2: tp2,
+    takeProfit3: tp3,
+    takeProfit4: tp4,
+    takeProfit5: tp5,
+    takeProfit6: tp6,
+    sl1Pips: sl1PipsVal,
+    sl2Pips: sl2PipsVal,
+    sl3Pips: sl3PipsVal,
+    slPips: sl1PipsVal,
+    tp1Pips: tp1PipsVal,
+    tp2Pips: tp2PipsVal,
+    tp3Pips: tp3PipsVal,
+    tp4Pips: tp4PipsVal,
+    tp5Pips: tp5PipsVal,
+    tp6Pips: tp6PipsVal,
     riskRewardRatio: riskRewardRatioVal,
     confidenceScore: 82,
     tradeGrade: "A",
-    reasoning: `Highly structured setup for ${market || "asset"} aligned with the prevailing daily trend direction on ${tf} timeframe. Sell-side liquidity sweep is complete. Risk limits are set strictly behind the local structural invalidation zone. Institutional volume spikes confirm smart money support for this setup.`,
+    reasoning: `Structured ${effectiveStyle} trade setup for ${market || "asset"}. Tiered limits configured with +5 baseline buffer and 5-10 pip intervals: 1st SL at -${sl1PipsVal} pips, 2nd SL at -${sl2PipsVal} pips, 3rd SL at -${sl3PipsVal} pips. Take profit targets: 1st TP at +${tp1PipsVal} pips, 2nd TP at +${tp2PipsVal} pips, 3rd TP at +${tp3PipsVal} pips, with additional extended targets at +10 (${tp4PipsVal}p), +20 (${tp5PipsVal}p), and +40 (${tp6PipsVal}p).`,
+    moneyManagement: {
+      riskPerTradePct: 1.0,
+      breakevenTrigger: "Move Stop Loss to Entry / Breakeven (+1 pip buffer) immediately once 1st TP is triggered",
+      scaleOutRules: {
+        tp1Pct: 30,
+        tp2Pct: 25,
+        tp3Pct: 20,
+        tp4Pct: 10,
+        tp5Pct: 10,
+        tp6Pct: 5
+      },
+      trailingRules: "Lock in profits by trailing Stop Loss behind preceding TP levels. 100% disciplined risk management."
+    },
     expectedMarketOpen: "Mon-Fri (Core Liquidity Session Open)",
     expectedEntryTime: `${formatDateTime(entryTime)} (Retesting level in ${formatDuration(entryOffsetMinutes)})`,
     expectedTradeEnd: `${formatDateTime(endTime)} (Estimated trade finish/exhaustion)`,
     holdingTime: `${formatDuration(holdingMinutes)} (Estimated trend continuation duration)`,
-    currentTimeSpent: `${formatDuration(elapsedMinutes)} spent developing current trend`
+    currentTimeSpent: `${formatDuration(elapsedMinutes)} spent developing current trend`,
+    structure: {
+      support: {
+        s1: s1Val,
+        s2: s2Val,
+        s3: s3Val,
+        s1Label: "Immediate Dynamic Shelf (S1)",
+        s2Label: "Institutional Order Block Demand (S2)",
+        s3Label: "Major Macro Invalidation Base (S3)",
+        s1Pips: Math.max(1, Math.round(Math.abs(priceNum - s1Val) / pipFactor)),
+        s2Pips: Math.max(2, Math.round(Math.abs(priceNum - s2Val) / pipFactor)),
+        s3Pips: Math.max(3, Math.round(Math.abs(priceNum - s3Val) / pipFactor))
+      },
+      resistance: {
+        r1: r1Val,
+        r2: r2Val,
+        r3: r3Val,
+        r1Label: "Immediate Dynamic Cap (R1)",
+        r2Label: "Institutional Supply Block (R2)",
+        r3Label: "Macro Range High Liquidity Pool (R3)",
+        r1Pips: Math.max(1, Math.round(Math.abs(r1Val - priceNum) / pipFactor)),
+        r2Pips: Math.max(2, Math.round(Math.abs(r2Val - priceNum) / pipFactor)),
+        r3Pips: Math.max(3, Math.round(Math.abs(r3Val - priceNum) / pipFactor))
+      },
+      highLow: {
+        higherHigh,
+        higherLow,
+        lowerHigh,
+        lowerLow,
+        structureState: isBuy ? 'BULLISH (HH & HL)' : 'BEARISH (LH & LL)'
+      },
+      reversal: {
+        chochLevel,
+        bosLevel,
+        reversalPivot,
+        reversalType: isBuy ? 'Bearish Reversal' : 'Bullish Reversal',
+        invalidationThreshold: Math.max(1, Math.round(Math.abs(reversalPivot - priceNum) / pipFactor)),
+        explanation: isBuy 
+          ? `CHoCH invalidation triggers if price breaches $${chochLevel.toFixed(decimals)}. Continuation BOS triggers on breakout above $${bosLevel.toFixed(decimals)}.`
+          : `CHoCH invalidation triggers if price breaches $${chochLevel.toFixed(decimals)}. Continuation BOS triggers on breakdown below $${bosLevel.toFixed(decimals)}.`
+      }
+    }
   };
 
   // Direct Quantitative Engine Execution (when requested or in offline/cooldown fallback)
@@ -1959,7 +2206,7 @@ app.post("/api/generate-setup", async (req, res) => {
   }
 
   try {
-    const prompt = `Generate a comprehensive trading setup plan for the asset: ${market} analyzed on the ${tf} timeframe.
+    const prompt = `Generate a comprehensive trading setup plan for the asset: ${market} analyzed on the ${tf} timeframe for a trader with style: ${effectiveStyle.toUpperCase()}.
 Requested direction bias: ${direction || "BUY/SELL recommendation"}.
 Current baseline price: ${currentPrice || 1.0850}.
 Account risk metrics: Risk percent of ${riskPercent || 1}%, Balance of $${balance || 10000}.
@@ -1968,12 +2215,19 @@ The user's current local date and time is: ${userLocalTime || new Date().toLocal
 Provide specific Stop Loss, Entry Zone, Take Profit 1, Take Profit 2, Risk/Reward ratio, a Confidence score, a Trade Grade (A+, A, B, C, D), specific temporal forecasts, and professional risk-managed quantitative reasoning.
 
 CRITICAL RULES FOR STOP LOSS & TAKE PROFIT DISTANCES (MUST FOLLOW STRICTLY):
-1. For Cryptocurrencies (BTC, ETH, SOL, XRP, DOGE, PEPE, SHIB, etc.) and High-Volatility Assets:
-   - Cryptocurrencies fluctuate significantly. NEVER place Stop Loss or Take Profit levels unnaturally close to the entry price (such as 0.05% or 0.1% away), as this causes instant accidental stop-outs on market spread or noise.
-   - On short timeframes (M1, M5, M15): Stop Loss MUST be placed at a structural buffer of 0.3% to 1.2% away from entry price, with Take Profit 1 at 0.8% to 2.5% away.
-   - On medium/higher timeframes (H1, H4, D1, W1): Stop Loss MUST be placed around 1.5% to 4.0% away, with Take Profit targets at 3.0% to 8.0% away (avoiding unrealistic 15-20%+ distances unless on macro multi-month swing charts).
-2. Decimal Precision:
-   - For sub-$1 cryptos (e.g. XRP $0.55, DOGE $0.12, SHIB $0.000018), provide exact decimal precision (4 to 7 decimal places) so prices are distinct, realistic, and do not get collapsed or rounded to identical numbers.
+1. TRADING STYLE CONSTRAINTS (MANDATORY - TRADER PROFILE IS "${effectiveStyle.toUpperCase()}"):
+   - For SCALPERS (M1/M5):
+     * On Gold (XAUUSD): Stop Loss MUST be tight, only $2.00 to $3.50 away from entry price (20 to 35 pips). NEVER place a $10-$20 Stop Loss for a scalper! Take Profit 1 must be $4.00 to $6.50 away. Holding duration must be 5 to 15 minutes.
+     * On Forex (EURUSD, GBPUSD, USDJPY): Stop Loss MUST be 7 to 12 pips away. Take Profit 1 MUST be 14 to 22 pips.
+     * On Crypto (BTC, ETH): Stop Loss MUST be 0.25% to 0.45% away. Take Profit 1 MUST be 0.50% to 0.90%.
+     * On Indices (US30, NAS100): Stop Loss MUST be 20 to 35 points away. Take Profit 1 MUST be 40 to 70 points.
+   - For DAY TRADERS (M15/H1): Stop Loss 20-35 pips for Forex, $7-$11 for Gold, 1.2%-1.8% for Crypto.
+   - For SWING TRADERS (H4/D1): Stop Loss 60-100 pips for Forex, $20-$30 for Gold.
+2. For Cryptocurrencies and High-Volatility Assets:
+   - NEVER place Stop Loss or Take Profit levels unnaturally close to the entry price (such as 0.05% or 0.1% away) on market spread or noise.
+   - On short timeframes: 0.3% to 0.8% away.
+3. Decimal Precision:
+   - For sub-$1 cryptos, provide exact decimal precision (4 to 7 decimal places) so prices are distinct, realistic, and do not get collapsed or rounded.
 
 Crucial instructions for the temporal forecasts based on the ${tf} timeframe:
 1. All times MUST be translated and expressed in terms of the USER'S LOCAL TIME (the user's local time is currently ${userLocalTime || new Date().toLocaleString()}). Do not output in UTC unless it matches the user's local time zone, or make sure to clearly label it as 'Local Time'.
@@ -2022,6 +2276,101 @@ Crucial instructions for the temporal forecasts based on the ${tf} timeframe:
 
     const resultText = response.text || "{}";
     const data = JSON.parse(resultText);
+
+    // Hard Sanitize: Ensure Stop Loss strictly conforms to Scalper constraints if user is Scalping
+    if (effectiveStyle === "Scalper") {
+      if (isGold) {
+        const currentDiff = Math.abs(data.stopLoss - priceNum);
+        if (currentDiff > 4.50 || currentDiff < 1.50) {
+          const scalpSl = Number((2.80).toFixed(decimals));
+          if (data.direction === "BUY") {
+            data.stopLoss = Number((priceNum - scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum + scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum + scalpSl * 3.4).toFixed(decimals));
+          } else {
+            data.stopLoss = Number((priceNum + scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum - scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum - scalpSl * 3.4).toFixed(decimals));
+          }
+        }
+      } else if (isForex) {
+        const isJpy = sym.includes("JPY");
+        const pipScale = isJpy ? 0.01 : 0.0001;
+        const currentPips = Math.abs(data.stopLoss - priceNum) / pipScale;
+        if (currentPips > 15 || currentPips < 5) {
+          const scalpPips = 10;
+          const scalpSl = Number((scalpPips * pipScale).toFixed(decimals));
+          if (data.direction === "BUY") {
+            data.stopLoss = Number((priceNum - scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum + scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum + scalpSl * 3.2).toFixed(decimals));
+          } else {
+            data.stopLoss = Number((priceNum + scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum - scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum - scalpSl * 3.2).toFixed(decimals));
+          }
+        }
+      } else if (isCrypto) {
+        const currentPct = Math.abs(data.stopLoss - priceNum) / priceNum;
+        if (currentPct > 0.010 || currentPct < 0.002) {
+          const scalpSl = Number((priceNum * 0.0040).toFixed(decimals));
+          if (data.direction === "BUY") {
+            data.stopLoss = Number((priceNum - scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum + scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum + scalpSl * 3.4).toFixed(decimals));
+          } else {
+            data.stopLoss = Number((priceNum + scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum - scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum - scalpSl * 3.4).toFixed(decimals));
+          }
+        }
+      } else if (isIndex) {
+        const currentPts = Math.abs(data.stopLoss - priceNum);
+        if (currentPts > 50 || currentPts < 10) {
+          const scalpSl = Number((25.0).toFixed(decimals));
+          if (data.direction === "BUY") {
+            data.stopLoss = Number((priceNum - scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum + scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum + scalpSl * 3.4).toFixed(decimals));
+          } else {
+            data.stopLoss = Number((priceNum + scalpSl).toFixed(decimals));
+            data.takeProfit1 = Number((priceNum - scalpSl * 2.0).toFixed(decimals));
+            data.takeProfit2 = Number((priceNum - scalpSl * 3.4).toFixed(decimals));
+          }
+        }
+      }
+
+      data.holdingTime = "12 - 18 Minutes (Scalper Execution Window)";
+      data.currentTimeSpent = "3 - 5 Minutes developing micro-momentum";
+      const sDiff = Math.abs(data.stopLoss - priceNum);
+      const rDiff = Math.abs(data.takeProfit1 - priceNum);
+      data.riskRewardRatio = sDiff > 0 ? Number((rDiff / sDiff).toFixed(1)) : 2.0;
+    }
+
+    // Guarantee full 3-tier TP/SL and market structure on every response
+    data.stopLoss1 = data.stopLoss1 || (data.stopLoss ? Number(data.stopLoss.toFixed(decimals)) : sl1Val);
+    data.stopLoss2 = data.stopLoss2 || sl2Val;
+    data.stopLoss3 = data.stopLoss3 || sl3Val;
+    data.takeProfit1 = data.takeProfit1 || tp1;
+    data.takeProfit2 = data.takeProfit2 || tp2;
+    data.takeProfit3 = data.takeProfit3 || tp3;
+    data.takeProfit4 = data.takeProfit4 || tp4;
+    data.takeProfit5 = data.takeProfit5 || tp5;
+    data.takeProfit6 = data.takeProfit6 || tp6;
+    data.sl1Pips = data.sl1Pips || Math.max(1, Math.round(Math.abs(priceNum - (data.stopLoss1 || sl1Val)) / pipFactor));
+    data.sl2Pips = data.sl2Pips || Math.max(2, Math.round(Math.abs(priceNum - (data.stopLoss2 || sl2Val)) / pipFactor));
+    data.sl3Pips = data.sl3Pips || Math.max(3, Math.round(Math.abs(priceNum - (data.stopLoss3 || sl3Val)) / pipFactor));
+    data.slPips = data.sl1Pips;
+    data.tp1Pips = data.tp1Pips || Math.max(1, Math.round(Math.abs((data.takeProfit1 || tp1) - priceNum) / pipFactor));
+    data.tp2Pips = data.tp2Pips || Math.max(2, Math.round(Math.abs((data.takeProfit2 || tp2) - priceNum) / pipFactor));
+    data.tp3Pips = data.tp3Pips || Math.max(3, Math.round(Math.abs((data.takeProfit3 || tp3) - priceNum) / pipFactor));
+    data.tp4Pips = data.tp4Pips || (data.tp1Pips + 10);
+    data.tp5Pips = data.tp5Pips || (data.tp1Pips + 20);
+    data.tp6Pips = data.tp6Pips || (data.tp1Pips + 40);
+    data.tradingStyle = data.tradingStyle || effectiveStyle;
+    data.structure = data.structure || mockSetup.structure;
+    data.moneyManagement = data.moneyManagement || mockSetup.moneyManagement;
+
     res.json({ success: true, isMock: false, data });
   } catch (err: any) {
     console.log("[Gemini API] Transitioning to local quantitative analysis fallback for generate-setup.");

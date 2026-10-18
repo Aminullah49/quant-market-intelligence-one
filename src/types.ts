@@ -83,14 +83,87 @@ export interface MarketAnalysisResponse {
   isMock?: boolean;
 }
 
+export interface MarketStructureLevels {
+  support: {
+    s1: number;
+    s2: number;
+    s3: number;
+    s1Label?: string;
+    s2Label?: string;
+    s3Label?: string;
+    s1Pips?: number;
+    s2Pips?: number;
+    s3Pips?: number;
+  };
+  resistance: {
+    r1: number;
+    r2: number;
+    r3: number;
+    r1Label?: string;
+    r2Label?: string;
+    r3Label?: string;
+    r1Pips?: number;
+    r2Pips?: number;
+    r3Pips?: number;
+  };
+  highLow: {
+    higherHigh: number;
+    higherLow: number;
+    lowerHigh: number;
+    lowerLow: number;
+    structureState: 'BULLISH (HH & HL)' | 'BEARISH (LH & LL)' | 'RANGE / EQUAL HIGHS-LOWS';
+    lastSwingHighTime?: string;
+    lastSwingLowTime?: string;
+  };
+  reversal: {
+    chochLevel: number; // Change of Character level (trend flip trigger)
+    bosLevel: number;   // Break of Structure level (trend continuation trigger)
+    reversalPivot: number; // Key Liquidity Invalidation Reversal Level
+    reversalType: 'Bullish Reversal' | 'Bearish Reversal' | 'Trend Continuation';
+    invalidationThreshold: number;
+    explanation: string;
+  };
+}
+
 export interface TradeSetupPlan {
   market?: string;
   timeframe?: string;
   direction: 'BUY' | 'SELL' | 'WAIT' | 'NO TRADE';
   entryZone: string;
-  stopLoss: number;
-  takeProfit1: number;
-  takeProfit2: number;
+  
+  // Tiered Stop Losses (1st SL, 2nd SL, 3rd SL)
+  stopLoss: number; // Primary/Active SL
+  stopLoss1?: number; // 1st SL (Tight micro invalidation)
+  stopLoss2?: number; // 2nd SL (Standard structural invalidation)
+  stopLoss3?: number; // 3rd SL (Wide safety/spread cushion invalidation)
+  slPips?: number;
+  sl1Pips?: number;
+  sl2Pips?: number;
+  sl3Pips?: number;
+  slDistance?: number;
+  sl2Distance?: number;
+  sl3Distance?: number;
+
+  // Tiered Take Profits (1st TP, 2nd TP, 3rd TP, and 3 Additional TPs: 4th TP, 5th TP, 6th TP based on 1st TP +10, +20, +40)
+  takeProfit1: number; // 1st TP
+  takeProfit2: number; // 2nd TP
+  takeProfit3?: number; // 3rd TP
+  takeProfit4?: number; // 4th TP (Additional target: 1st TP + 10)
+  takeProfit5?: number; // 5th TP (Additional target: 1st TP + 20)
+  takeProfit6?: number; // 6th TP (Additional target: 1st TP + 40)
+  tp1Pips?: number;
+  tp2Pips?: number;
+  tp3Pips?: number;
+  tp4Pips?: number;
+  tp5Pips?: number;
+  tp6Pips?: number;
+  tp1Distance?: number;
+  tp2Distance?: number;
+  tp3Distance?: number;
+  tp4Distance?: number;
+  tp5Distance?: number;
+  tp6Distance?: number;
+
   riskRewardRatio: number;
   confidenceScore: number;
   tradeGrade: string;
@@ -100,8 +173,28 @@ export interface TradeSetupPlan {
   expectedTradeEnd: string; // Estimated local time when current trend direction will end/reverse
   holdingTime: string; // Estimated how many hours/time the market will continue moving in the buy or sell direction (Trend Duration)
   currentTimeSpent: string; // Estimated time spent/elapsed since current trend direction/movement started
+  tradingStyle?: 'Scalper' | 'Intraday Trader' | 'Day Trader' | 'Swing Trader' | 'Position Trader';
+  pipUnit?: string;
   isMock?: boolean;
   error?: string;
+
+  // Key Support, Resistance, HH/LL levels, and Reversal points
+  structure?: MarketStructureLevels;
+
+  // Professional Money Management & Scaling Protocol
+  moneyManagement?: {
+    riskPerTradePct: number;
+    breakevenTrigger: string;
+    scaleOutRules: {
+      tp1Pct: number;
+      tp2Pct: number;
+      tp3Pct: number;
+      tp4Pct: number;
+      tp5Pct: number;
+      tp6Pct: number;
+    };
+    trailingRules: string;
+  };
 }
 
 export interface JournalEntry {

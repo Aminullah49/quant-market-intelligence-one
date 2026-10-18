@@ -334,22 +334,76 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset, 
     }
   }, [currentUser]);
 
-  // Set default SL/TP based on selected asset (Crypto vs Non-Crypto aware to ensure exchange compliance)
+  const [tradingStyleMode, setTradingStyleMode] = useState<"scalp" | "day" | "swing">("scalp");
+
+  // Set default SL/TP based on selected asset and trading style (Scalp vs Day vs Swing)
   useEffect(() => {
     if (!selectedAsset) return;
     const isCrypto = selectedAsset.category === "Crypto" || /BTC|ETH|SOL|XRP|DOGE|PEPE|SHIB|ADA|DOT|AVAX|LINK|NEAR|BNB|UNI|LTC|BCH|SUI|APT|ICP|RENDER|STX|CRYPTO/i.test(selectedAsset.symbol);
+    const isGold = /XAU|GOLD/i.test(selectedAsset.symbol);
+    const isForex = selectedAsset.category === "Forex" || (!isGold && !isCrypto && selectedAsset.symbol.includes("/"));
+    const isIndex = selectedAsset.category === "Indices" || /US30|NAS100|SPX|NDX|GER40|DAX/i.test(selectedAsset.symbol);
+    const isJpy = selectedAsset.symbol.includes("JPY");
     const decimals = selectedAsset.price < 0.1 ? 6 : selectedAsset.price < 2 ? 4 : 2;
-    const slDistPct = isCrypto ? 0.025 : 0.008; // 2.5% for Crypto vs 0.8% for Forex/Gold
-    const tpDistPct = isCrypto ? 0.055 : 0.018; // 5.5% for Crypto vs 1.8% for Forex/Gold
+
+    let slDist = 0;
+    let tpDist = 0;
+
+    if (tradingStyleMode === "scalp") {
+      if (isGold) {
+        slDist = 2.80; // .80 Gold scalp (28 pips)
+        tpDist = 5.60;
+      } else if (isForex) {
+        const pipUnit = isJpy ? 0.01 : 0.0001;
+        slDist = 9.5 * pipUnit; // ~9.5 pips Forex scalp
+        tpDist = 19.0 * pipUnit;
+      } else if (isCrypto) {
+        slDist = selectedAsset.price * 0.0040; // 0.40% tight Crypto scalp
+        tpDist = selectedAsset.price * 0.0080;
+      } else if (isIndex) {
+        slDist = 25.0; // 25 points index scalp
+        tpDist = 50.0;
+      } else {
+        slDist = selectedAsset.price * 0.0040;
+        tpDist = selectedAsset.price * 0.0080;
+      }
+    } else if (tradingStyleMode === "day") {
+      if (isGold) {
+        slDist = 8.50;
+        tpDist = 17.00;
+      } else if (isForex) {
+        const pipUnit = isJpy ? 0.01 : 0.0001;
+        slDist = 28 * pipUnit;
+        tpDist = 56 * pipUnit;
+      } else if (isCrypto) {
+        slDist = selectedAsset.price * 0.015;
+        tpDist = selectedAsset.price * 0.035;
+      } else {
+        slDist = selectedAsset.price * 0.012;
+        tpDist = selectedAsset.price * 0.025;
+      }
+    } else {
+      if (isGold) {
+        slDist = 25.00;
+        tpDist = 60.00;
+      } else if (isForex) {
+        const pipUnit = isJpy ? 0.01 : 0.0001;
+        slDist = 80 * pipUnit;
+        tpDist = 180 * pipUnit;
+      } else {
+        slDist = selectedAsset.price * 0.035;
+        tpDist = selectedAsset.price * 0.080;
+      }
+    }
 
     if (orderType === "BUY") {
-      setSlPrice((selectedAsset.price * (1 - slDistPct)).toFixed(decimals));
-      setTpPrice((selectedAsset.price * (1 + tpDistPct)).toFixed(decimals));
+      setSlPrice((selectedAsset.price - slDist).toFixed(decimals));
+      setTpPrice((selectedAsset.price + tpDist).toFixed(decimals));
     } else {
-      setSlPrice((selectedAsset.price * (1 + slDistPct)).toFixed(decimals));
-      setTpPrice((selectedAsset.price * (1 - tpDistPct)).toFixed(decimals));
+      setSlPrice((selectedAsset.price + slDist).toFixed(decimals));
+      setTpPrice((selectedAsset.price - tpDist).toFixed(decimals));
     }
-  }, [selectedAsset, orderType]);
+  }, [selectedAsset, orderType, tradingStyleMode]);
 
   // Run real-time P&L Tick Fluctuation Simulator
   useEffect(() => {
@@ -502,20 +556,22 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset, 
     }
 
     // Minimum stop distance validation to prevent exchange order rejection
+    // Minimum stop distance validation: calibrated for scalpers (allows tight 2+ pip stops without collision)
     const isCrypto = selectedAsset.category === "Crypto" || /BTC|ETH|SOL|XRP|DOGE|PEPE|SHIB|ADA|DOT|AVAX|LINK|NEAR|BNB|UNI|LTC|BCH|SUI|APT|ICP|RENDER|STX|CRYPTO/i.test(selectedAsset.symbol);
+    const isGold = /XAU|GOLD/i.test(selectedAsset.symbol);
     const distSlPct = Math.abs(entryPrice - slNum) / entryPrice;
     const distTpPct = Math.abs(tpNum - entryPrice) / entryPrice;
-    const minDist = isCrypto ? 0.005 : 0.001; // 0.5% for Crypto vs 0.1% for Forex
+    const minDist = isCrypto ? 0.0015 : isGold ? 0.0003 : 0.00015;
 
     if (distSlPct < minDist) {
-      triggerNotification(`Stop Loss is too close to open price (${(distSlPct * 100).toFixed(2)}%). ${isCrypto ? "Cryptocurrency exchanges require at least 0.5% Stop Loss distance." : "Minimum Stop Loss distance is 0.1%."}`, "error");
-      addTerminalLog(`Order rejected: Stop Loss distance (${(distSlPct * 100).toFixed(2)}%) violates exchange minimum stop distance rule (${(minDist * 100).toFixed(1)}%).`, "error");
+      triggerNotification(`Stop Loss is too close to open price (${(distSlPct * 100).toFixed(3)}%). Minimum Stop Loss safety distance is ${(minDist * 100).toFixed(3)}%.`, "error");
+      addTerminalLog(`Order rejected: Stop Loss distance (${(distSlPct * 100).toFixed(3)}%) violates minimum safety distance (${(minDist * 100).toFixed(3)}%).`, "error");
       return;
     }
 
     if (distTpPct < minDist) {
-      triggerNotification(`Take Profit is too close to open price (${(distTpPct * 100).toFixed(2)}%). ${isCrypto ? "Cryptocurrency exchanges require at least 0.5% Take Profit distance." : "Minimum Take Profit distance is 0.1%."}`, "error");
-      addTerminalLog(`Order rejected: Take Profit distance (${(distTpPct * 100).toFixed(2)}%) violates exchange minimum stop distance rule (${(minDist * 100).toFixed(1)}%).`, "error");
+      triggerNotification(`Take Profit is too close to open price (${(distTpPct * 100).toFixed(3)}%). Minimum Take Profit safety distance is ${(minDist * 100).toFixed(3)}%.`, "error");
+      addTerminalLog(`Order rejected: Take Profit distance (${(distTpPct * 100).toFixed(3)}%) violates minimum safety distance (${(minDist * 100).toFixed(3)}%).`, "error");
       return;
     }
 
@@ -1486,6 +1542,49 @@ export default function PaperTrading({ allAssets, selectedAsset, onSelectAsset, 
                   {lev}x
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* SL/TP Style Presets */}
+          <div className="flex items-center justify-between bg-slate-950 p-1.5 rounded-xl border border-slate-800 text-[10px] font-mono">
+            <span className="text-slate-400 font-bold px-1.5 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 bg-emerald-400 rounded-full animate-pulse" />
+              SL/TP Target:
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setTradingStyleMode("scalp")}
+                className={`px-2 py-1 rounded font-black transition-all cursor-pointer ${
+                  tradingStyleMode === "scalp"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                ⚡ Scalp (Tight)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTradingStyleMode("day")}
+                className={`px-2 py-1 rounded font-black transition-all cursor-pointer ${
+                  tradingStyleMode === "day"
+                    ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                🎯 Day
+              </button>
+              <button
+                type="button"
+                onClick={() => setTradingStyleMode("swing")}
+                className={`px-2 py-1 rounded font-black transition-all cursor-pointer ${
+                  tradingStyleMode === "swing"
+                    ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                🌊 Swing
+              </button>
             </div>
           </div>
 
