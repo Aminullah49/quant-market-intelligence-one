@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { DEFAULT_ASSETS } from "./src/data";
+import { calculateSmartMoneyConcepts } from "./src/utils";
 
 dotenv.config();
 
@@ -2189,8 +2190,10 @@ app.post("/api/generate-setup", async (req, res) => {
         explanation: isBuy 
           ? `CHoCH invalidation triggers if price breaches $${chochLevel.toFixed(decimals)}. Continuation BOS triggers on breakout above $${bosLevel.toFixed(decimals)}.`
           : `CHoCH invalidation triggers if price breaches $${chochLevel.toFixed(decimals)}. Continuation BOS triggers on breakdown below $${bosLevel.toFixed(decimals)}.`
-      }
-    }
+      },
+      smc: calculateSmartMoneyConcepts(priceNum, isBuy ? 'BUY' : 'SELL', tf, decimals, undefined, pipFactor)
+    },
+    smc: calculateSmartMoneyConcepts(priceNum, isBuy ? 'BUY' : 'SELL', tf, decimals, undefined, pipFactor)
   };
 
   // Direct Quantitative Engine Execution (when requested or in offline/cooldown fallback)

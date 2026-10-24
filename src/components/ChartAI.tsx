@@ -1,14 +1,22 @@
 import React, { useState, useEffect } from "react";
 import { MarketAsset, TechnicalState, MarketAnalysisResponse, TradeSetupPlan } from "../types";
 import { generateCandlesticks } from "../data";
-import { generateDynamicAnalysis, generateDynamicSetup, getUpcomingEvents, getDecimals, getTimeframeMultiplier } from "../utils";
+import { 
+  generateDynamicAnalysis, 
+  generateDynamicSetup, 
+  getUpcomingEvents, 
+  getDecimals, 
+  getTimeframeMultiplier,
+  calculateSmartMoneyConcepts,
+  detectCandleSMC
+} from "../utils";
 import { 
   TrendingUp, TrendingDown, Eye, Play, Sparkles, Activity, ShieldAlert,
   ArrowUpRight, BarChart3, Crosshair, ChevronDown, ChevronUp, RefreshCw, Star, 
   Camera, Maximize2, Settings, Type, Square, Ruler, Lock, Trash2, 
   Clock, Calendar, Coins, Flame, Info, CheckCircle2, AlertTriangle, HelpCircle,
   X, Search, Filter, Copy, Check, Sliders, Globe, ChevronRight, Loader2, AlertCircle,
-  Zap, CheckCircle, Radio
+  Zap, CheckCircle, Radio, Layers, Target, DollarSign
 } from "lucide-react";
 import { getAssetMacroImpact, getNewsForAsset, reconcileTechnicalAndFundamental } from "../utils/marketNews";
 
@@ -75,6 +83,16 @@ export default function ChartAI({
   const [hoveredCandle, setHoveredCandle] = useState<any | null>(null);
   const [isFavorite, setIsFavorite] = useState(true);
   const [showPALabels, setShowPALabels] = useState(true);
+  const [showSMC, setShowSMC] = useState(true);
+  const [smcToggles, setSmcToggles] = useState({
+    fvg: true,
+    liquidity: true,
+    chochBos: true,
+    orderBlocks: true,
+    premiumDiscount: true,
+    icc: true
+  });
+  const [showSMCModal, setShowSMCModal] = useState(false);
 
   // New Interactive Modal States
   const [showPatternsModal, setShowPatternsModal] = useState(false);
@@ -554,6 +572,19 @@ export default function ChartAI({
     return `${getX(i)},${getY(average)}`;
   }).join(" ");
 
+  // Real Smart Money Concepts (SMC) calculations for current asset and candle series
+  const assetDecimals = getDecimals(selectedAsset);
+  const pipFactor = selectedAsset.category === "Forex" ? (selectedAsset.symbol.includes("JPY") ? 0.01 : 0.0001) : selectedAsset.symbol.includes("XAU") ? 0.10 : 0.01;
+  const smcData = calculateSmartMoneyConcepts(
+    selectedAsset.price,
+    selectedAsset.bullishProb >= selectedAsset.bearishProb ? 'BUY' : 'SELL',
+    timeframe,
+    assetDecimals,
+    selectedAsset.category,
+    pipFactor
+  );
+  const candleSmc = detectCandleSMC(candles, assetDecimals, pipFactor);
+
   return (
     <div className="space-y-6">
       
@@ -660,7 +691,30 @@ export default function ChartAI({
             title="Toggle candlestick price action patterns on chart"
           >
             <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            <span>PA Patterns: {showPALabels ? "ON" : "OFF"}</span>
+            <span>PA: {showPALabels ? "ON" : "OFF"}</span>
+          </button>
+
+          {/* Smart Money Concepts (SMC) Master Toggle */}
+          <button 
+            onClick={() => setShowSMC(!showSMC)}
+            className={`px-3 py-2 border rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+              showSMC 
+                ? "bg-purple-500/15 text-purple-300 border-purple-500/40 shadow-sm shadow-purple-900/40" 
+                : "bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-400"
+            }`}
+            title="Toggle Smart Money Concepts (FVG Imbalances, Liquidity Sweeps, CHoCH/BOS, Order Blocks, Dealing Range)"
+          >
+            <Layers className="h-3.5 w-3.5 text-purple-400" />
+            <span>SMC Suite: {showSMC ? "ON" : "OFF"}</span>
+          </button>
+
+          <button 
+            onClick={() => setShowSMCModal(true)}
+            className="px-2.5 py-2 bg-slate-950 border border-slate-800 hover:border-purple-500/40 text-purple-300 hover:text-white rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+            title="Inspect FVG Matrix, Liquidity Pools, CHoCH/BOS Levels & Order Blocks"
+          >
+            <Sliders className="h-3.5 w-3.5 text-purple-400" />
+            <span className="hidden md:inline">SMC Levels</span>
           </button>
 
           <button className="px-3 py-2 bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-xs font-semibold text-slate-300 flex items-center gap-1.5 cursor-pointer">
@@ -739,6 +793,106 @@ export default function ChartAI({
                 </button>
               </div>
             </div>
+
+            {/* Smart Money Concepts (SMC) Active Layer Control Bar */}
+            {showSMC && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 mb-2.5 bg-slate-950/90 border border-purple-500/30 rounded-xl shadow-inner font-mono text-[10px]">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-purple-300 font-bold pr-2 border-r border-slate-800">
+                    <Layers className="h-3.5 w-3.5 text-purple-400" />
+                    <span className="tracking-wider">SMC INSTITUTIONAL ENGINE</span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tight ${
+                    smcData.premiumDiscount.currentZone === 'DISCOUNT' 
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                      : smcData.premiumDiscount.currentZone === 'PREMIUM'
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                  }`}>
+                    {smcData.premiumDiscount.currentZone} ({smcData.premiumDiscount.premiumDiscountRatio}% Range)
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button 
+                    onClick={() => setSmcToggles(p => ({ ...p, fvg: !p.fvg }))}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 font-bold ${
+                      smcToggles.fvg 
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs' 
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                    title="Toggle Fair Value Gap (FVG) imbalances & 50% Consequent Encroachment (CE)"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    <span>FVG ({candleSmc.fvgs.length + smcData.fvgs.length})</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setSmcToggles(p => ({ ...p, liquidity: !p.liquidity }))}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 font-bold ${
+                      smcToggles.liquidity 
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs' 
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                    title="Toggle Buy-Side & Sell-Side Liquidity pools (BSL & SSL) and sweep levels"
+                  >
+                    <DollarSign className="h-2.5 w-2.5 text-amber-400" />
+                    <span>Liquidity BSL/SSL</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setSmcToggles(p => ({ ...p, chochBos: !p.chochBos }))}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 font-bold ${
+                      smcToggles.chochBos 
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs' 
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                    title="Toggle CHoCH (Trend Flip) & BOS (Structure Expansion) lines"
+                  >
+                    <Target className="h-2.5 w-2.5 text-cyan-400" />
+                    <span>CHoCH / BOS</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setSmcToggles(p => ({ ...p, orderBlocks: !p.orderBlocks }))}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 font-bold ${
+                      smcToggles.orderBlocks 
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-xs' 
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                    title="Toggle Institutional Supply & Demand Order Blocks (+OB / -OB)"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                    <span>Order Blocks</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setSmcToggles(p => ({ ...p, premiumDiscount: !p.premiumDiscount }))}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 font-bold ${
+                      smcToggles.premiumDiscount 
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-xs' 
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                    title="Toggle 50% Dealing Range Equilibrium & Premium/Discount valuation"
+                  >
+                    <span>50% EQ</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setSmcToggles(p => ({ ...p, icc: !p.icc }))}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 font-bold ${
+                      smcToggles.icc 
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs' 
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                    title="Toggle ICC (Indication, Correction, Continuation) & Institutional Confirmation Candle"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    <span>ICC: {smcData.icc?.currentPhase || 'Continuation'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Layout with Vertical Tool Rail and SVG Canvas */}
             <div className="flex items-stretch gap-3 relative min-h-[310px]">
@@ -1017,6 +1171,314 @@ export default function ChartAI({
                     );
                   })()}
 
+                  {/* === SMART MONEY CONCEPTS (SMC) INSTITUTIONAL OVERLAYS === */}
+                  {showSMC && (
+                    <g className="smc-institutional-suite">
+                      
+                      {/* 1. Dealing Range Premium vs Discount Valuation & 50% Equilibrium Line */}
+                      {smcToggles.premiumDiscount && (() => {
+                        const eqY = getY(smcData.premiumDiscount.equilibrium);
+                        const rHighY = getY(smcData.premiumDiscount.rangeHigh);
+                        const rLowY = getY(smcData.premiumDiscount.rangeLow);
+                        const zoneY = Math.min(rHighY, eqY);
+                        const zoneH = Math.max(10, Math.abs(eqY - rHighY));
+                        const discY = Math.min(eqY, rLowY);
+                        const discH = Math.max(10, Math.abs(rLowY - eqY));
+
+                        return (
+                          <g opacity="0.9">
+                            {/* Premium Zone Background */}
+                            <rect
+                              x={0}
+                              y={zoneY}
+                              width={chartWidth}
+                              height={zoneH}
+                              fill="rgba(244, 63, 94, 0.025)"
+                            />
+                            {/* Discount Zone Background */}
+                            <rect
+                              x={0}
+                              y={discY}
+                              width={chartWidth}
+                              height={discH}
+                              fill="rgba(16, 185, 129, 0.025)"
+                            />
+                            {/* 50% Equilibrium Dashed Line */}
+                            <line
+                              x1={0}
+                              y1={eqY}
+                              x2={chartWidth}
+                              y2={eqY}
+                              stroke="#a855f7"
+                              strokeWidth="1.2"
+                              strokeDasharray="4,4"
+                              opacity="0.75"
+                            />
+                            <rect
+                              x={chartWidth - 116}
+                              y={eqY - 8}
+                              width={112}
+                              height={16}
+                              fill="#0f172a"
+                              stroke="#a855f7"
+                              strokeWidth="0.8"
+                              rx="3"
+                              opacity="0.95"
+                            />
+                            <text
+                              x={chartWidth - 60}
+                              y={eqY + 3.5}
+                              fill="#d8b4fe"
+                              fontSize="8"
+                              fontWeight="bold"
+                              fontFamily="monospace"
+                              textAnchor="middle"
+                            >
+                              50% EQ: ${smcData.premiumDiscount.equilibrium.toFixed(assetDecimals)}
+                            </text>
+                          </g>
+                        );
+                      })()}
+
+                      {/* 2. Institutional Order Blocks (+OB Demand & -OB Supply) */}
+                      {smcToggles.orderBlocks && smcData.orderBlocks.map((ob, idx) => {
+                        const topY = getY(ob.top);
+                        const botY = getY(ob.bottom);
+                        const y = Math.min(topY, botY);
+                        const h = Math.max(8, Math.abs(botY - topY));
+                        const isBull = ob.type === "BULLISH_OB";
+                        const startX = chartWidth * (isBull ? 0.15 : 0.45);
+                        const width = chartWidth * 0.45;
+                        const meanY = getY(ob.meanThreshold);
+
+                        return (
+                          <g key={`ob-overlay-${idx}`} opacity="0.85">
+                            {/* Order block zone rectangle */}
+                            <rect
+                              x={startX}
+                              y={y}
+                              width={width}
+                              height={h}
+                              fill={isBull ? "rgba(16, 185, 129, 0.09)" : "rgba(239, 68, 68, 0.09)"}
+                              stroke={isBull ? "rgba(16, 185, 129, 0.55)" : "rgba(239, 68, 68, 0.55)"}
+                              strokeWidth="1"
+                              strokeDasharray="2,2"
+                              rx="2"
+                            />
+                            {/* 50% Mean Threshold line */}
+                            <line
+                              x1={startX}
+                              y1={meanY}
+                              x2={startX + width}
+                              y2={meanY}
+                              stroke={isBull ? "#34d399" : "#f87171"}
+                              strokeWidth="0.8"
+                              strokeDasharray="3,3"
+                            />
+                            {/* OB Tag */}
+                            <rect
+                              x={startX + 6}
+                              y={y - 7}
+                              width={isBull ? 90 : 85}
+                              height={13}
+                              fill="#090d16"
+                              stroke={isBull ? "#10b981" : "#ef4444"}
+                              strokeWidth="0.6"
+                              rx="2"
+                            />
+                            <text
+                              x={startX + 10}
+                              y={y + 2.5}
+                              fill={isBull ? "#34d399" : "#f87171"}
+                              fontSize="7.5"
+                              fontWeight="bold"
+                              fontFamily="monospace"
+                            >
+                              {isBull ? "+OB Demand" : "-OB Supply"} (MT: ${ob.meanThreshold.toFixed(assetDecimals)})
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* 3. Fair Value Gaps (FVG) Imbalance Boxes & 50% CE Lines */}
+                      {smcToggles.fvg && smcData.fvgs.map((fvg, idx) => {
+                        const topY = getY(fvg.top);
+                        const botY = getY(fvg.bottom);
+                        const y = Math.min(topY, botY);
+                        const h = Math.max(6, Math.abs(botY - topY));
+                        const ceY = getY(fvg.midCe);
+                        const isBull = fvg.type === "BULLISH_FVG";
+                        const startX = chartWidth * (idx === 0 ? 0.32 : idx === 1 ? 0.20 : 0.08);
+                        const width = chartWidth - startX - 25;
+
+                        return (
+                          <g key={`fvg-overlay-${idx}`}>
+                            {/* FVG Imbalance Box */}
+                            <rect
+                              x={startX}
+                              y={y}
+                              width={width}
+                              height={h}
+                              fill={isBull ? "rgba(20, 184, 166, 0.12)" : "rgba(249, 115, 22, 0.12)"}
+                              stroke={isBull ? "rgba(20, 184, 166, 0.6)" : "rgba(249, 115, 22, 0.6)"}
+                              strokeWidth="1.2"
+                              rx="2"
+                            />
+                            {/* 50% Consequent Encroachment (CE) Line */}
+                            <line
+                              x1={startX}
+                              y1={ceY}
+                              x2={startX + width}
+                              y2={ceY}
+                              stroke={isBull ? "#2dd4bf" : "#fb923c"}
+                              strokeWidth="1"
+                              strokeDasharray="4,3"
+                            />
+                            {/* FVG Label Badge */}
+                            <rect
+                              x={startX + 8}
+                              y={y - 8}
+                              width={118}
+                              height={15}
+                              fill="#090d16"
+                              stroke={isBull ? "#14b8a6" : "#f97316"}
+                              strokeWidth="0.8"
+                              rx="2"
+                            />
+                            <text
+                              x={startX + 12}
+                              y={y + 2.5}
+                              fill={isBull ? "#5eead4" : "#fdba74"}
+                              fontSize="7.5"
+                              fontWeight="black"
+                              fontFamily="monospace"
+                            >
+                              {isBull ? "+FVG IMBALANCE" : "-FVG IMBALANCE"} (50% CE)
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* 4. Liquidity Pools (BSL & SSL) Dashed Target & Sweep Lines */}
+                      {smcToggles.liquidity && smcData.liquidityPools.map((liq, idx) => {
+                        const levelY = getY(liq.level);
+                        const isBsl = liq.type === "BSL";
+                        const strokeColor = isBsl ? "#fbbf24" : "#f43f5e";
+
+                        return (
+                          <g key={`liq-overlay-${idx}`}>
+                            {/* Liquidity level horizontal dashed line */}
+                            <line
+                              x1={0}
+                              y1={levelY}
+                              x2={chartWidth - 5}
+                              y2={levelY}
+                              stroke={strokeColor}
+                              strokeWidth={liq.swept ? "1.2" : "1.5"}
+                              strokeDasharray={liq.swept ? "3,3" : "6,4"}
+                              opacity={liq.swept ? "0.6" : "0.9"}
+                            />
+                            {/* Liquidity Target / Sweep Badge */}
+                            <rect
+                              x={chartWidth * 0.05 + idx * 45}
+                              y={levelY - 7.5}
+                              width={isBsl ? 135 : 130}
+                              height={15}
+                              fill="#090d16"
+                              stroke={strokeColor}
+                              strokeWidth="0.8"
+                              rx="3"
+                              opacity="0.95"
+                            />
+                            <text
+                              x={chartWidth * 0.05 + idx * 45 + 5}
+                              y={levelY + 3.5}
+                              fill={strokeColor}
+                              fontSize="7.5"
+                              fontWeight="bold"
+                              fontFamily="monospace"
+                            >
+                              $ {liq.type}: {liq.poolType.replace("_", " ")} {liq.swept ? "[SWEPT]" : `(${liq.pipsAway}p)`}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {/* 5. Change of Character (CHoCH) & Break of Structure (BOS) Lines */}
+                      {smcToggles.chochBos && (() => {
+                        const chochY = getY(smcData.choch.level);
+                        const bosY = getY(smcData.bos.level);
+
+                        return (
+                          <g>
+                            {/* CHoCH Level Line */}
+                            <line
+                              x1={chartWidth * 0.18}
+                              y1={chochY}
+                              x2={chartWidth - 10}
+                              y2={chochY}
+                              stroke="#06b6d4"
+                              strokeWidth="1.5"
+                              strokeDasharray="5,2"
+                            />
+                            <rect
+                              x={chartWidth * 0.65}
+                              y={chochY - 8.5}
+                              width={110}
+                              height={17}
+                              fill="#082f49"
+                              stroke="#06b6d4"
+                              strokeWidth="1"
+                              rx="3"
+                            />
+                            <text
+                              x={chartWidth * 0.70}
+                              y={chochY + 3.5}
+                              fill="#67e8f9"
+                              fontSize="8"
+                              fontWeight="black"
+                              fontFamily="monospace"
+                            >
+                              ⚡ CHoCH: ${smcData.choch.level.toFixed(assetDecimals)}
+                            </text>
+
+                            {/* BOS Level Line */}
+                            <line
+                              x1={chartWidth * 0.22}
+                              y1={bosY}
+                              x2={chartWidth - 10}
+                              y2={bosY}
+                              stroke="#10b981"
+                              strokeWidth="1.5"
+                              strokeDasharray="4,4"
+                            />
+                            <rect
+                              x={chartWidth * 0.42}
+                              y={bosY - 8.5}
+                              width={105}
+                              height={17}
+                              fill="#064e3b"
+                              stroke="#10b981"
+                              strokeWidth="1"
+                              rx="3"
+                            />
+                            <text
+                              x={chartWidth * 0.47}
+                              y={bosY + 3.5}
+                              fill="#6ee7b7"
+                              fontSize="8"
+                              fontWeight="black"
+                              fontFamily="monospace"
+                            >
+                              🚀 BOS: ${smcData.bos.level.toFixed(assetDecimals)}
+                            </text>
+                          </g>
+                        );
+                      })()}
+
+                    </g>
+                  )}
+
                   {/* Quote Overlay Block on Top Left of Canvas */}
                   <g transform="translate(15, 22)" opacity="0.95">
                     <circle cx="5" cy="5" r="3" fill="#10b981" className="animate-pulse" />
@@ -1157,6 +1619,60 @@ export default function ChartAI({
                               </text>
                             </g>
                           );
+                        })()}
+
+                        {/* Dynamic Smart Money Concepts (SMC) Candle Marker */}
+                        {showSMC && (() => {
+                          const candleFvg = smcToggles.fvg && candleSmc.fvgs.find(f => f.candleIndex === index);
+                          const candleSweep = smcToggles.liquidity && candleSmc.sweeps.find(s => s.candleIndex === index);
+                          const candleOb = smcToggles.orderBlocks && candleSmc.orderBlocks.find(ob => ob.candleIndex === index);
+
+                          if (candleFvg) {
+                            return (
+                              <g className="pointer-events-none">
+                                <circle cx={x} cy={candleFvg.type === 'BULLISH_FVG' ? lowY + 14 : highY - 14} r="3" fill="#14b8a6" />
+                                <text x={x} y={candleFvg.type === 'BULLISH_FVG' ? lowY + 23 : highY - 18} fill="#2dd4bf" fontSize="7" fontWeight="black" fontFamily="monospace" textAnchor="middle">
+                                  FVG
+                                </text>
+                              </g>
+                            );
+                          }
+
+                          if (candleSweep) {
+                            return (
+                              <g className="pointer-events-none">
+                                <circle cx={x} cy={candleSweep.type === 'BSL_SWEEP' ? highY - 14 : lowY + 14} r="3" fill="#fbbf24" />
+                                <text x={x} y={candleSweep.type === 'BSL_SWEEP' ? highY - 18 : lowY + 23} fill="#fbbf24" fontSize="6.5" fontWeight="black" fontFamily="monospace" textAnchor="middle">
+                                  SWEEP
+                                </text>
+                              </g>
+                            );
+                          }
+
+                          if (candleOb) {
+                            return (
+                              <g className="pointer-events-none">
+                                <circle cx={x} cy={candleOb.type === 'BULLISH_OB' ? lowY + 14 : highY - 14} r="3" fill="#818cf8" />
+                                <text x={x} y={candleOb.type === 'BULLISH_OB' ? lowY + 23 : highY - 18} fill="#a5b4fc" fontSize="6.5" fontWeight="black" fontFamily="monospace" textAnchor="middle">
+                                  {candleOb.type === 'BULLISH_OB' ? '+OB' : '-OB'}
+                                </text>
+                              </g>
+                            );
+                          }
+
+                          const candleIcc = smcToggles.icc && candleSmc.iccCandles?.find(ic => ic.candleIndex === index);
+                          if (candleIcc) {
+                            return (
+                              <g className="pointer-events-none">
+                                <circle cx={x} cy={isUp ? highY - 14 : lowY + 14} r="3" fill="#f59e0b" />
+                                <text x={x} y={isUp ? highY - 18 : lowY + 23} fill="#fbbf24" fontSize="6.5" fontWeight="black" fontFamily="monospace" textAnchor="middle">
+                                  ICC
+                                </text>
+                              </g>
+                            );
+                          }
+
+                          return null;
                         })()}
                       </g>
                     );
@@ -3069,6 +3585,371 @@ export default function ChartAI({
             </div>
             <div className="p-4 bg-slate-950/40 border-t border-slate-800 text-center text-[10px] text-slate-500 font-mono">
               Economic calendar synchronized with global central bank releases.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: SMART MONEY CONCEPTS (SMC) INSTITUTIONAL MATRIX MODAL */}
+      {showSMCModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-purple-500/30 rounded-3xl w-full max-w-3xl max-h-[88vh] overflow-hidden shadow-2xl flex flex-col font-sans">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 bg-purple-500/15 border border-purple-500/30 rounded-xl flex items-center justify-center text-purple-400">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white tracking-wide">
+                      Smart Money Concepts (SMC) & Institutional Liquidity Matrix
+                    </h3>
+                    <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-[10px] font-mono font-bold rounded-md border border-purple-500/30">
+                      {selectedAsset.symbol} &bull; {timeframe}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                    Real Institutional Imbalances, Equal High/Low Pools, CHoCH Flips, and Order Blocks
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSMCModal(false)}
+                className="h-9 w-9 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-5 flex-1 bg-slate-950/20 font-mono text-xs">
+              
+              {/* Premium vs Discount Valuation Header Card */}
+              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
+                      DEALING RANGE EQUILIBRIUM & VALUATION:
+                    </span>
+                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-black uppercase ${
+                      smcData.premiumDiscount.currentZone === 'DISCOUNT'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : smcData.premiumDiscount.currentZone === 'PREMIUM'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                        : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                    }`}>
+                      {smcData.premiumDiscount.currentZone} ZONE ({smcData.premiumDiscount.premiumDiscountRatio}%)
+                    </span>
+                  </div>
+                  <span className="text-xs text-purple-300 font-bold">
+                    50% Equilibrium: ${smcData.premiumDiscount.equilibrium.toFixed(assetDecimals)}
+                  </span>
+                </div>
+
+                {/* Progress bar visual */}
+                <div className="space-y-1">
+                  <div className="h-2 w-full bg-slate-850 rounded-full overflow-hidden flex">
+                    <div className="h-full bg-emerald-500/60 w-1/2" title="Discount Zone (0-50%)" />
+                    <div className="h-full bg-rose-500/60 w-1/2" title="Premium Zone (50-100%)" />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-slate-500">
+                    <span>Range Low: ${smcData.premiumDiscount.rangeLow.toFixed(assetDecimals)} (Deep Discount)</span>
+                    <span className="text-purple-400 font-bold">50% Fair Value Balance</span>
+                    <span>Range High: ${smcData.premiumDiscount.rangeHigh.toFixed(assetDecimals)} (Extreme Premium)</span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-300 font-sans leading-relaxed pt-1 border-t border-slate-900">
+                  {smcData.premiumDiscount.smartMoneyVerdict}
+                </p>
+              </div>
+
+              {/* SECTION 1: FAIR VALUE GAPS (FVG) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                    <h4 className="font-bold text-white text-xs uppercase tracking-wider">
+                      Fair Value Gaps (FVG) & 3-Candle Imbalance Matrix
+                    </h4>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {smcData.fvgs.length + candleSmc.fvgs.length} Imbalances Tracked
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {smcData.fvgs.map((fvg, i) => {
+                    const isBull = fvg.type === "BULLISH_FVG";
+                    return (
+                      <div 
+                        key={i} 
+                        className={`p-3.5 rounded-xl border space-y-2 ${
+                          isBull ? 'bg-teal-950/20 border-teal-500/30' : 'bg-orange-950/20 border-orange-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                            isBull ? 'bg-teal-500/20 text-teal-300' : 'bg-orange-500/20 text-orange-300'
+                          }`}>
+                            {isBull ? 'Bullish FVG (+Demand Inefficiency)' : 'Bearish FVG (-Supply Inefficiency)'}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            fvg.mitigated ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/20 text-amber-300'
+                          }`}>
+                            {fvg.mitigated ? 'Mitigated / Filled' : 'Fresh (Unmitigated)'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 bg-slate-950/80 p-2 rounded-lg text-center text-[10px]">
+                          <div>
+                            <span className="text-slate-500 block text-[8.5px]">IMBALANCE TOP</span>
+                            <span className="font-bold text-white">${fvg.top.toFixed(assetDecimals)}</span>
+                          </div>
+                          <div>
+                            <span className="text-purple-400 block text-[8.5px] font-bold">50% CE (MIDPOINT)</span>
+                            <span className="font-bold text-purple-300">${fvg.midCe.toFixed(assetDecimals)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block text-[8.5px]">IMBALANCE BOT</span>
+                            <span className="font-bold text-white">${fvg.bottom.toFixed(assetDecimals)}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 font-sans">
+                          <span>Gap Width: <strong className="text-slate-200 font-mono">{fvg.pipsSize} Pips</strong></span>
+                          <span>Institutional Retest Target: <strong className="text-purple-300 font-mono">${fvg.midCe.toFixed(assetDecimals)}</strong></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION 2: LIQUIDITY POOLS (BSL & SSL) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-3.5 w-3.5 text-amber-400" />
+                    <h4 className="font-bold text-white text-xs uppercase tracking-wider">
+                      Liquidity Pools (Buy-Side BSL & Sell-Side SSL)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] text-amber-400 font-mono font-bold">
+                    Stop-Hunt Targets & Purges
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {smcData.liquidityPools.map((liq, i) => {
+                    const isBsl = liq.type === "BSL";
+                    return (
+                      <div 
+                        key={i} 
+                        className={`p-3.5 rounded-xl border space-y-2 ${
+                          isBsl ? 'bg-amber-950/20 border-amber-500/30' : 'bg-rose-950/20 border-rose-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                            isBsl ? 'bg-amber-500/20 text-amber-300' : 'bg-rose-500/20 text-rose-300'
+                          }`}>
+                            $ {liq.type} &bull; {liq.poolType.replace("_", " ")}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            liq.swept ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                          }`}>
+                            {liq.swept ? 'SWEPT & PURGED' : `ACTIVE TARGET (${liq.pipsAway}p)`}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-slate-950/80 p-2 rounded-lg">
+                          <span className="text-slate-400">Liquidity Price Level:</span>
+                          <span className={`font-bold font-mono text-sm ${isBsl ? 'text-amber-300' : 'text-rose-300'}`}>
+                            ${liq.level.toFixed(assetDecimals)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-sans leading-relaxed">
+                          {liq.description}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION 3: CHOCH & BOS STRUCTURAL REVERSALS */}
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <Target className="h-3.5 w-3.5 text-cyan-400" />
+                  <h4 className="font-bold text-white text-xs uppercase tracking-wider">
+                    CHoCH (Change of Character) & BOS (Break of Structure)
+                  </h4>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="p-3.5 bg-slate-950 border border-cyan-500/30 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-cyan-300 uppercase px-2 py-0.5 bg-cyan-500/20 rounded">
+                        CHoCH (Trend Flip Invalidation)
+                      </span>
+                      <span className="text-[9px] text-slate-400">Structural Trigger</span>
+                    </div>
+                    <div className="text-sm font-bold text-white">
+                      Price Trigger: <span className="text-cyan-400">${smcData.choch.level.toFixed(assetDecimals)}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-sans leading-relaxed">
+                      {smcData.choch.explanation}
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-950 border border-emerald-500/30 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-emerald-300 uppercase px-2 py-0.5 bg-emerald-500/20 rounded">
+                        BOS (Break of Structure Expansion)
+                      </span>
+                      <span className="text-[9px] text-slate-400">Continuation Trigger</span>
+                    </div>
+                    <div className="text-sm font-bold text-white">
+                      Price Trigger: <span className="text-emerald-400">${smcData.bos.level.toFixed(assetDecimals)}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-sans leading-relaxed">
+                      {smcData.bos.explanation}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 4: INSTITUTIONAL ORDER BLOCKS */}
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-indigo-400" />
+                  <h4 className="font-bold text-white text-xs uppercase tracking-wider">
+                    Institutional Order Blocks (Supply & Demand Footprints)
+                  </h4>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {smcData.orderBlocks.map((ob, i) => {
+                    const isBull = ob.type === "BULLISH_OB";
+                    return (
+                      <div 
+                        key={i} 
+                        className={`p-3.5 rounded-xl border space-y-2 ${
+                          isBull ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-rose-950/20 border-rose-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                            isBull ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                          }`}>
+                            {isBull ? '+OB Bullish Demand Block' : '-OB Bearish Supply Block'}
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-bold">
+                            {ob.strength} Tier
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 bg-slate-950/80 p-2 rounded-lg text-center text-[10px]">
+                          <div>
+                            <span className="text-slate-500 block text-[8.5px]">ZONE TOP</span>
+                            <span className="font-bold text-white">${ob.top.toFixed(assetDecimals)}</span>
+                          </div>
+                          <div>
+                            <span className="text-indigo-400 block text-[8.5px] font-bold">50% MEAN THRESHOLD</span>
+                            <span className="font-bold text-indigo-300">${ob.meanThreshold.toFixed(assetDecimals)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block text-[8.5px]">ZONE BOT</span>
+                            <span className="font-bold text-white">${ob.bottom.toFixed(assetDecimals)}</span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-sans flex justify-between">
+                          <span>Institutional Absorption Zone: <strong className="text-slate-200 font-mono">{ob.pipsSize} Pips</strong></span>
+                          <span>Entry MT: <strong className="text-indigo-300 font-mono">${ob.meanThreshold.toFixed(assetDecimals)}</strong></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION 5: ICC SYSTEM (INDICATION, CORRECTION, CONTINUATION) & ICC CANDLE */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-amber-400" />
+                    <h4 className="font-bold text-white text-xs uppercase tracking-wider">
+                      ICC System (Indication &bull; Correction &bull; Continuation)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] text-amber-300 font-mono font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                    {smcData.icc?.phaseStage || 'Phase 3: Continuation (Entry Trigger)'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Indication */}
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-400 uppercase font-bold">1. INDICATION (I)</span>
+                      <span className="text-emerald-400 font-bold">Completed</span>
+                    </div>
+                    <span className="text-white font-bold text-xs block">
+                      Impulse: ${smcData.icc?.indicationLevel.toFixed(assetDecimals)}
+                    </span>
+                    <p className="text-[9px] text-slate-400 font-sans leading-tight">
+                      Institutional displacement breaking structural levels to indicate true directional intent.
+                    </p>
+                  </div>
+
+                  {/* Correction */}
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-400 uppercase font-bold">2. CORRECTION (C)</span>
+                      <span className="text-purple-400 font-bold">Mitigated</span>
+                    </div>
+                    <span className="text-white font-bold text-xs block">
+                      Pullback: ${smcData.icc?.correctionZone.bottom.toFixed(assetDecimals)} - ${smcData.icc?.correctionZone.top.toFixed(assetDecimals)}
+                    </span>
+                    <p className="text-[9px] text-slate-400 font-sans leading-tight">
+                      Orderly pullback into wholesale discount FVG / Order Block without structural invalidation.
+                    </p>
+                  </div>
+
+                  {/* Continuation */}
+                  <div className="p-3 bg-amber-950/20 border border-amber-500/40 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-amber-300 uppercase font-bold">3. CONTINUATION (C)</span>
+                      <span className="text-amber-400 font-bold animate-pulse">Active Trigger</span>
+                    </div>
+                    <span className="text-amber-300 font-bold text-xs block">
+                      Trigger: ${smcData.icc?.continuationTrigger.toFixed(assetDecimals)}
+                    </span>
+                    <p className="text-[9px] text-slate-300 font-sans leading-tight">
+                      Institutional Confirmation Candle (ICC) confirmed. Entry signaled for trend expansion.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-slate-950 border border-amber-500/20 rounded-xl flex items-center justify-between text-[10px] text-slate-300">
+                  <span className="font-sans leading-snug">
+                    <strong className="text-amber-400 font-mono">ICC Candle Confirmation:</strong> {smcData.icc?.iccCandleDetails}
+                  </span>
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 font-mono font-bold rounded shrink-0 ml-2">
+                    Verified
+                  </span>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between font-mono text-[10px] text-slate-400">
+              <span>SMC Engine: Algorithmic 3-candle imbalance & institutional liquidity footprint scanner.</span>
+              <button
+                onClick={() => setShowSMCModal(false)}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg transition-all cursor-pointer"
+              >
+                Close & Return to Chart
+              </button>
             </div>
           </div>
         </div>

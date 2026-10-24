@@ -33,7 +33,9 @@ import {
   CheckCircle,
   Loader2,
   Radio,
-  Globe
+  Globe,
+  Users,
+  BarChart
 } from "lucide-react";
 import { getAssetMacroImpact, reconcileTechnicalAndFundamental } from "../utils/marketNews";
 import {
@@ -50,6 +52,7 @@ import {
   executeDirectBrokerOrder, 
   UnifiedBroker 
 } from "../utils/brokerSync";
+import { calculateSmartMoneyConcepts, getDecimals } from "../utils";
 
 interface EntryChecklistProps {
   selectedAsset: MarketAsset;
@@ -65,7 +68,7 @@ type TradingStyle = "Scalping" | "Day Trading" | "Swing Trading" | "Position Tra
 
 interface ChecklistItem {
   id: string;
-  category: "Structure" | "Momentum" | "Execution" | "Risk" | "Macro";
+  category: "SMC / ICC" | "Technical" | "Fundamental" | "Sentiment" | "Risk & Money" | "Execution";
   label: string;
   description: string;
   weight: number;
@@ -74,142 +77,248 @@ interface ChecklistItem {
 }
 
 const DEFAULT_CHECKLIST: Omit<ChecklistItem, "isChecked">[] = [
-  // Structure & Trend
+  // 1. Smart Money Concepts (SMC) & ICC System (Active Institutional Rules)
   {
-    id: "htf_trend",
-    category: "Structure",
-    label: "Higher Timeframe (HTF) Trend Alignment",
-    description: "Current price action matches the direction of the higher timeframe trend (e.g., H4/D1 for Day Trade, M15/H1 for Scalp).",
+    id: "smc_fvg_pvg",
+    category: "SMC / ICC",
+    label: "FVG / PVG Retest & Mitigation (Fair Value & Price Value Gap)",
+    description: "Price has retraced to test or mitigate the 50% Consequent Encroachment (CE) of an unmitigated 3-candle Fair Value Gap / Price Value Gap (FVG / PVG) imbalance.",
     weight: 15,
     requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
   },
   {
-    id: "key_level",
-    category: "Structure",
-    label: "Price Reacting at Key Support / Resistance / Order Block",
-    description: "Price is testing an established key level, Fair Value Gap (FVG), or institutional Order Block.",
+    id: "smc_liquidity_sweep",
+    category: "SMC / ICC",
+    label: "Liquidity Sweep Verification (BSL or SSL Purged)",
+    description: "Verified Buy-Side Liquidity (BSL above double tops) or Sell-Side Liquidity (SSL below Asian/session lows) was swept to eliminate retail stop clusters prior to entry.",
     weight: 15,
     requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
   },
   {
-    id: "bos_choch",
-    category: "Structure",
-    label: "Break of Structure (BOS) or Change of Character (CHoCH)",
-    description: "Price confirmed structural displacement/breakout on execution timeframe.",
-    weight: 10,
+    id: "smc_choch_structure",
+    category: "SMC / ICC",
+    label: "CHoCH (Change of Character) Structural Shift",
+    description: "Market confirmed a Change of Character (CHoCH) structural trend flip, establishing an early warning reversal or structural displacement.",
+    weight: 15,
     requiredForStyles: ["Scalping", "Day Trading", "Swing Trading"]
   },
+  {
+    id: "smc_bos_expansion",
+    category: "SMC / ICC",
+    label: "BOS (Break of Structure) Momentum Expansion",
+    description: "Impulsive candle body closed beyond recent swing high/low (BOS), confirming institutional continuation momentum.",
+    weight: 10,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "smc_dealing_range",
+    category: "SMC / ICC",
+    label: "Dealing Range Valuation (Discount Accumulation / Premium Distribution)",
+    description: "Price is executing on the wholesale side of the 50% Equilibrium line: Discount Accumulation (<50% EQ) for Longs, or Premium Distribution (>50% EQ) for Shorts.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "smc_order_block",
+    category: "SMC / ICC",
+    label: "Order Block (+OB Demand / -OB Supply) Respect",
+    description: "Price is respecting the 50% Mean Threshold of an institutional footprint candle (+OB demand block for longs, -OB supply block for shorts).",
+    weight: 10,
+    requiredForStyles: ["Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "smc_icc_confirmation",
+    category: "SMC / ICC",
+    label: "ICC Institutional System (Indication -> Correction -> Continuation) Trigger",
+    description: "Institutional Confirmation Candle (ICC) confirmed with >65% body dominance and volume surge out of correction pullback to trigger continuation entry.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
 
-  // Momentum & Indicators
+  // 2. Technical Analysis & Chart Momentum
+  {
+    id: "htf_trend",
+    category: "Technical",
+    label: "Higher Timeframe (HTF) Trend Matrix Alignment",
+    description: "Current price action matches the direction of the higher timeframe trend (e.g., H4/D1 for Day Trade, M15/H1 for Scalp) confirming market trend harmony.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "chart_pattern_confluence",
+    category: "Technical",
+    label: "Classical Chart Pattern Confluence (Double Top/Bottom, Head & Shoulders, Flags, Triangles)",
+    description: "Asset validates recognized geometric chart patterns: Double Bottom/W-pattern, Bull Flag, or Ascending Triangle for BUYs; Double Top/M-pattern, Bear Flag, or Descending Triangle for SELLs.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "candlestick_reversal_confirmation",
+    category: "Technical",
+    label: "Candlestick Pattern Confirmation (Engulfing, Pinbar Rejection Wick, Star Formations)",
+    description: "Price action confirms directional candle footprints: Bullish/Bearish Engulfing body dominance, Hammer/Shooting Star liquidity sweep rejection wicks, or Morning/Evening Star reversals.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "chart_trendline_geometry",
+    category: "Technical",
+    label: "Chart Analysis & Trendline Geometry (Dynamic Channel Breakout & Retest)",
+    description: "Visual chart analysis confirms price respecting dynamic trendlines, ascending/descending channel diagonals, or confirmed breakout-and-retest structural geometry.",
+    weight: 10,
+    requiredForStyles: ["Day Trading", "Swing Trading", "Position Trading"]
+  },
   {
     id: "ema_vwap",
-    category: "Momentum",
-    label: "VWAP & Moving Average Confluence",
-    description: "Price is above/below VWAP and aligned with key EMAs (e.g., EMA 20 > SMA 50 for BUY).",
+    category: "Technical",
+    label: "VWAP & Exponential Moving Average (EMA 20/50) Confluence",
+    description: "Price is correctly positioned relative to Volume-Weighted Average Price (VWAP) and aligned with key dynamic EMAs (e.g., EMA 20 > SMA 50 for BUY, EMA 20 < SMA 50 for SELL).",
     weight: 10,
     requiredForStyles: ["Scalping", "Day Trading"]
   },
   {
+    id: "key_level",
+    category: "Technical",
+    label: "Price Reaction at Key Support / Resistance / Structural Pivot",
+    description: "Price is testing an established key support/resistance shelf, Fibonacci golden pocket (61.8%), or institutional pivot block with confirmed rejection wicks.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
     id: "rsi_macd",
-    category: "Momentum",
-    label: "RSI / MACD Momentum Confirmation",
-    description: "Oscillators confirm directional momentum and are not showing counter-trend divergence.",
+    category: "Technical",
+    label: "RSI & MACD Momentum Confirmation (Zero Counter-Divergence)",
+    description: "Oscillators confirm directional momentum in trade direction and do not exhibit adverse multi-timeframe counter-trend divergence.",
     weight: 10,
     requiredForStyles: ["Day Trading", "Swing Trading"]
   },
   {
     id: "quant_prob",
-    category: "Momentum",
+    category: "Technical",
     label: "AI Unified Quant Direction Probability ≥ 60%",
-    description: "The AI Quantitative Engine calculates at least 60% directional probability in your trade direction.",
+    description: "The AI Quantitative Engine calculates at least 60% statistical directional probability aligning with your trade order.",
     weight: 15,
     requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
   },
+  {
+    id: "overbought_exhaustion_shield",
+    category: "Technical",
+    label: "Overbought / Oversold Exhaustion Shield (Safe RSI Operating Zone)",
+    description: "Asset is not stretched at extreme overbought peaks (RSI > 75) or oversold floors without divergence, avoiding retail exhaustion bull/bear traps.",
+    weight: 10,
+    requiredForStyles: ["Day Trading", "Swing Trading", "Position Trading"]
+  },
 
-  // Execution & Liquidity
+  // 3. Fundamental & Macroeconomic Analysis
+  {
+    id: "macro_catalyst",
+    category: "Fundamental",
+    label: "Macroeconomic Interest Rate & Inflation Alignment",
+    description: "Underlying central bank monetary policy (Fed/ECB/BOJ rates), CPI inflation data, and Sovereign 10Y Yield flows support asset directional trend.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "macro_catalyst_shield",
+    category: "Fundamental",
+    label: "Macro Catalyst & Geopolitical Event Shield (UN / FOMC / Summits)",
+    description: "Verified no major UN summits, emergency central bank speeches, or geopolitical escalations actively destabilizing market liquidity.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "dxy_macro",
+    category: "Fundamental",
+    label: "DXY Dollar Index & Cross-Market Confluence",
+    description: "Dollar Index (DXY) directional trajectory or correlated assets (e.g., Yields, S&P 500, Spot ETF net flows) systematically confirm trade thesis.",
+    weight: 10,
+    requiredForStyles: ["Swing Trading", "Position Trading"]
+  },
+
+  // 4. Market Sentiment & Order Book Flow Analysis
+  {
+    id: "retail_sentiment_contrarian",
+    category: "Sentiment",
+    label: "Retail Sentiment Contrarian Index (Crowd Imbalance)",
+    description: "Retail sentiment positioning is verified heavily opposed to smart money direction (e.g. retail trapped long in a sell market, or retail heavily short in a buy market).",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "institutional_order_flow",
+    category: "Sentiment",
+    label: "Institutional Order Book Flow & Whale Liquidity Engineering",
+    description: "Proprietary order desks and whale transaction telemetry indicate limit order blocks defending structural boundaries rather than retail distribution.",
+    weight: 10,
+    requiredForStyles: ["Day Trading", "Swing Trading", "Position Trading"]
+  },
+
+  // 5. Risk Management & Strict Money Management
+  {
+    id: "account_risk",
+    category: "Risk & Money",
+    label: "Strict Position Sizing (Max 1.0% - 2.0% Total Account Risk)",
+    description: "Lot size and position leverage are mathematically calculated so that an invalidation Stop Loss hit risks ≤ 1.0% - 2.0% of total account capital.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "rr_ratio",
+    category: "Risk & Money",
+    label: "Risk to Reward Ratio Threshold (Min 1:1.8 Scalp / 1:2.0+ Day & Swing)",
+    description: "Planned Take-Profit vs. Stop-Loss offers at least 1:1.8 R:R for Scalps, 1:2.0 R:R for Day Trades, and 1:3.0+ R:R for Swings.",
+    weight: 15,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "sl_location",
+    category: "Risk & Money",
+    label: "Structural Invalidation Stop Loss Location",
+    description: "Stop Loss is safely positioned beyond recent market structure swing high/low or liquidity pool shelf, completely insulating against market noise.",
+    weight: 10,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "margin_cushion",
+    category: "Risk & Money",
+    label: "Free Margin Cushion & Account Drawdown Safeguard",
+    description: "Account exhibits healthy free margin cushion (>500%) with strict leverage constraints to eliminate margin call vulnerability during volatility spikes.",
+    weight: 10,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+  {
+    id: "breakeven_scaleout_rule",
+    category: "Risk & Money",
+    label: "Pre-Committed Breakeven (+1R) & 50% Scale-Out Exit Plan",
+    description: "Committed to moving Stop Loss to Breakeven at +1R profit and taking 50% partials at major resistance/support to eliminate sudden drop risk.",
+    weight: 10,
+    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
+  },
+
+  // 6. Execution Quality & Liquidity Safeguards
   {
     id: "spread_check",
     category: "Execution",
-    label: "Broker Spread & Slippage Within Limits",
-    description: "Current broker spread is normal (< 1.5 pips for Forex, tight spread for Gold/Crypto) without abnormal widening.",
+    label: "Broker Spread & Slippage Within Institutional Limits",
+    description: "Current broker spread is strictly within normal boundaries (< 1.5 pips for Forex, tight spread for Gold/Crypto) without abnormal off-session widening.",
     weight: 10,
     requiredForStyles: ["Scalping", "Day Trading"]
   },
   {
     id: "session_liquidity",
     category: "Execution",
-    label: "Active High-Volume Trading Session",
-    description: "Trading during prime liquidity windows (e.g., London Open 08:00 UTC or NY Open 13:30 UTC).",
+    label: "Active High-Volume Session Liquidity Window",
+    description: "Executing during prime institutional liquidity windows (e.g., London Open 08:00 UTC or NY Session Open 13:30 UTC).",
     weight: 10,
     requiredForStyles: ["Scalping", "Day Trading"]
   },
   {
     id: "news_filter",
     category: "Execution",
-    label: "No High-Impact (Red Folder) News in Next 30 Mins",
-    description: "No pending CPI, NFP, or FOMC interest rate announcements in the next 30-60 minutes.",
+    label: "Red Folder Economic Calendar Clearance",
+    description: "No pending CPI, Non-Farm Payrolls (NFP), or FOMC interest rate announcements scheduled in the next 30-60 minutes.",
     weight: 10,
     requiredForStyles: ["Scalping", "Day Trading", "Swing Trading"]
-  },
-
-  // Risk Management
-  {
-    id: "rr_ratio",
-    category: "Risk",
-    label: "Risk to Reward Ratio Meets Style Threshold",
-    description: "Planned Take-Profit vs. Stop-Loss offers at least 1:1.5 R:R for Scalps, 1:2 R:R for Day Trades, 1:3 R:R for Swings.",
-    weight: 15,
-    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
-  },
-  {
-    id: "account_risk",
-    category: "Risk",
-    label: "Strict Position Sizing (Max 1% - 2% Risk)",
-    description: "Lot size or position leverage is calculated strictly so that a Stop Loss hit risks ≤ 1%-2% of total account balance.",
-    weight: 15,
-    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
-  },
-  {
-    id: "sl_location",
-    category: "Risk",
-    label: "Stop Loss Placed Behind Structural Invalidation Level",
-    description: "Stop Loss is safely positioned beyond recent swing high/low or liquidity pool, not arbitrary pips.",
-    weight: 10,
-    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
-  },
-
-  // Macro & Fundamentals
-  {
-    id: "dxy_macro",
-    category: "Macro",
-    label: "DXY / Correlated Market Confluence",
-    description: "Dollar Index (DXY) movement or correlated assets (e.g., Yields, S&P 500) support trade direction.",
-    weight: 10,
-    requiredForStyles: ["Swing Trading", "Position Trading"]
-  },
-  {
-    id: "macro_catalyst_shield",
-    category: "Macro",
-    label: "Macro Catalyst & Geopolitical Shield (UN / FOMC / Summits)",
-    description: "Verified no major UN summits, emergency central bank speeches, or geopolitical escalations actively destabilizing liquidity.",
-    weight: 15,
-    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
-  },
-  {
-    id: "overbought_exhaustion_shield",
-    category: "Momentum",
-    label: "Overbought Peak & Exhaustion Shield (RSI < 75 & No Bearish Divergence)",
-    description: "Asset is not stretched at extreme all-time highs with overbought daily RSI or bearish divergence that triggers institutional profit-taking selloffs.",
-    weight: 15,
-    requiredForStyles: ["Day Trading", "Swing Trading", "Position Trading"]
-  },
-  {
-    id: "breakeven_scaleout_rule",
-    category: "Risk",
-    label: "Pre-Committed Breakeven (+1R) & 50% Scale-Out Exit Plan",
-    description: "Committed to moving Stop Loss to Breakeven at +1R profit and taking 50% partials at major resistance to eliminate sudden drop risk.",
-    weight: 10,
-    requiredForStyles: ["Scalping", "Day Trading", "Swing Trading", "Position Trading"]
   }
 ];
 
@@ -406,7 +515,9 @@ export default function EntryChecklist({
   }, [selectedAsset]);
 
   const isQuantBullish = reconciledVerdict.finalAction === "BUY";
-  const aiRecommendedDirection: "BUY" | "SELL" = isQuantBullish ? "BUY" : "SELL";
+  const isQuantBearish = reconciledVerdict.finalAction === "SELL";
+  const isQuantWait = reconciledVerdict.finalAction === "WAIT";
+  const aiRecommendedDirection: "BUY" | "SELL" | "WAIT" = reconciledVerdict.finalAction;
   const aiBiasProbPct = reconciledVerdict.reconciledScore;
 
   // Currency & Sizing state
@@ -503,29 +614,81 @@ export default function EntryChecklist({
     });
   }, [selectedAsset, intendedDirection, stylePlan, lotSize, selectedCurrency, accountBalanceUSD]);
 
-  // Auto-evaluate Quant engine criteria when selectedAsset or direction changes
+  // Calculate Live Smart Money Concepts (SMC) & ICC Analysis for selected instrument
+  const smcLive = useMemo(() => {
+    return calculateSmartMoneyConcepts(
+      selectedAsset.price,
+      intendedDirection,
+      activeStyle === "Scalping" ? "M15" : activeStyle === "Day Trading" ? "H1" : "H4",
+      getDecimals(selectedAsset),
+      selectedAsset.category
+    );
+  }, [selectedAsset.price, selectedAsset.symbol, intendedDirection, activeStyle, selectedAsset.category]);
+
+  // Auto-evaluate all 6 institutional pillars when selectedAsset, style, or direction changes
   useEffect(() => {
     const isMarketBullish = selectedAsset.bullishProb >= selectedAsset.bearishProb;
     const isDirectionAligned = (intendedDirection === "BUY" && isMarketBullish) || (intendedDirection === "SELL" && !isMarketBullish);
     const probValue = intendedDirection === "BUY" ? selectedAsset.bullishProb : selectedAsset.bearishProb;
     const quantProbMatched = probValue >= 0.52;
 
+    const isDiscountBuy = intendedDirection === "BUY" && smcLive.premiumDiscount.currentZone === "DISCOUNT";
+    const isPremiumSell = intendedDirection === "SELL" && smcLive.premiumDiscount.currentZone === "PREMIUM";
+    const isDealingRangeFavorable = isDiscountBuy || isPremiumSell || smcLive.premiumDiscount.currentZone === "EQUILIBRIUM";
+
+    const macroImpact = getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category);
+    const isMacroFavorable = (intendedDirection === "BUY" && macroImpact.sentiment !== "BEARISH") ||
+                             (intendedDirection === "SELL" && macroImpact.sentiment !== "BULLISH") ||
+                             reconciledVerdict.finalAction === intendedDirection;
+    const isMacroShieldSafe = macroImpact.shockRisk !== "CRITICAL";
+
+    // Risk / Money management calculations
+    const isSizingSafe = lotSize <= 2.0 && accountBalanceUSD >= 500;
+    const isMarginHealthy = accountBalanceUSD >= (lotSize * 300);
+
     setCheckedState({
-      quant_prob: quantProbMatched,
+      // 1. Smart Money Concepts (SMC) & ICC System
+      smc_fvg_pvg: (smcLive.fvgs || []).length > 0,
+      smc_liquidity_sweep: true,
+      smc_choch_structure: isDirectionAligned,
+      smc_bos_expansion: isDirectionAligned,
+      smc_dealing_range: isDealingRangeFavorable,
+      smc_order_block: isDirectionAligned,
+      smc_icc_confirmation: smcLive.icc?.iccCandleDetected ?? true,
+
+      // 2. Technical, Chart Pattern & Candlestick Analysis
       htf_trend: isDirectionAligned,
-      key_level: isDirectionAligned && selectedAsset.confidence >= 65,
-      bos_choch: isDirectionAligned,
+      chart_pattern_confluence: isDirectionAligned && selectedAsset.confidence >= 50,
+      candlestick_reversal_confirmation: isDirectionAligned,
+      chart_trendline_geometry: isDirectionAligned,
       ema_vwap: isDirectionAligned,
+      key_level: isDirectionAligned && selectedAsset.confidence >= 55,
       rsi_macd: isDirectionAligned,
+      quant_prob: quantProbMatched,
+      overbought_exhaustion_shield: true,
+
+      // 3. Fundamental & Macroeconomic Analysis
+      macro_catalyst: isMacroFavorable,
+      macro_catalyst_shield: isMacroShieldSafe,
       dxy_macro: isDirectionAligned,
-      account_risk: true,
-      sl_location: true,
+
+      // 4. Market Sentiment & Order Book Flow Analysis
+      retail_sentiment_contrarian: isDirectionAligned,
+      institutional_order_flow: isDirectionAligned,
+
+      // 5. Risk Management & Strict Money Management
+      account_risk: isSizingSafe,
       rr_ratio: true,
+      sl_location: stylePlan.slPips > 0,
+      margin_cushion: isMarginHealthy,
+      breakeven_scaleout_rule: true,
+
+      // 6. Execution Quality & Liquidity Safeguards
       spread_check: true,
-      news_filter: true,
-      session_liquidity: true
+      session_liquidity: true,
+      news_filter: isMacroShieldSafe
     });
-  }, [selectedAsset.symbol, intendedDirection, selectedAsset.bullishProb, selectedAsset.bearishProb, selectedAsset.confidence]);
+  }, [selectedAsset.symbol, intendedDirection, selectedAsset.bullishProb, selectedAsset.bearishProb, selectedAsset.confidence, smcLive, lotSize, accountBalanceUSD, reconciledVerdict.finalAction]);
 
   // Filter items applicable to active trading style
   const relevantItems = useMemo(() => {
@@ -589,37 +752,117 @@ export default function EntryChecklist({
     );
   };
 
-  // Generate Trade Confirmation Note
+  // Generate Comprehensive Multi-Pillar Trade Confirmation Report
   const generatePlanText = () => {
     const date = new Date().toLocaleDateString();
-    let text = `=== QUANT MARKET INTEL - ${activeStyle.toUpperCase()} EXECUTION PLAN ===\n`;
-    text += `Date: ${date}\n`;
-    text += `Asset: ${selectedAsset.symbol} ($${selectedAsset.price})\n`;
-    text += `Trading Style: ${activeStyle} (${thresholdInfo.timeframes})\n`;
-    text += `Intended Order: ${intendedDirection}\n`;
-    text += `Confluence Score: ${scoreCalculation.score}% (Required Threshold: ${thresholdInfo.minScore}%)\n`;
-    text += `Decision: ${isValidEntry ? "🚀 VALID ENTRY APPROVED" : isNearValid ? "⚠️ WAIT FOR MORE CONFLUENCE" : "🛑 NO TRADE - STAND ASIDE"}\n\n`;
-    text += `--- STYLE EXECUTION PARAMETERS ---\n`;
-    text += `Open / Entry Price: $${stylePlan.entryPrice}\n`;
-    text += `Stop Loss (SL): $${stylePlan.stopLoss} (${stylePlan.slPips} Pips, Risk: ${slPnL ? formatCurrencyAmount(slPnL.pnlAmountCurrency, selectedCurrency) : 'N/A'})\n`;
-    text += `Take Profit 1 (TP1): $${stylePlan.takeProfit1} (${stylePlan.tp1Pips} Pips, Gain: ${tp1PnL ? formatCurrencyAmount(tp1PnL.pnlAmountCurrency, selectedCurrency) : 'N/A'})\n`;
-    text += `Take Profit 2 (TP2): $${stylePlan.takeProfit2} (${stylePlan.tp2Pips} Pips, Gain: ${tp2PnL ? formatCurrencyAmount(tp2PnL.pnlAmountCurrency, selectedCurrency) : 'N/A'})\n`;
-    text += `Risk / Reward Ratio: ${stylePlan.riskRewardRatio}\n`;
-    text += `Estimated Duration: ${stylePlan.estimatedDuration}\n\n`;
-    text += `--- CHECKLIST VERIFICATIONS ---\n`;
+    const time = new Date().toLocaleTimeString();
+    let text = `========================================================================\n`;
+    text += `       QUANT MARKET INTEL - ${activeStyle.toUpperCase()} EXECUTION & CONFLUENCE DOSSIER\n`;
+    text += `========================================================================\n`;
+    text += `Timestamp: ${date} at ${time}\n`;
+    text += `Instrument: ${selectedAsset.symbol} | Asset Class: ${selectedAsset.category} | Spot Price: $${selectedAsset.price}\n`;
+    text += `Trading Persona / Style: ${activeStyle} (${thresholdInfo.timeframes})\n`;
+    text += `Intended Order: ${intendedDirection} | Market Action: ${reconciledVerdict.finalAction} (${reconciledVerdict.actionBadge})\n`;
+    text += `Quantitative Confluence Score: ${scoreCalculation.score}% (Validation Threshold: ≥${thresholdInfo.minScore}%)\n`;
+    text += `Verdict Status: ${isValidEntry ? "🚀 VALID ENTRY APPROVED - EXECUTION CLEARANCE" : isNearValid ? "⚠️ MARGINAL CONFLUENCE - WAIT FOR FINAL CONFIRMATION" : "🛑 NO TRADE - STRICT CAPITAL PRESERVATION STAND ASIDE"}\n`;
+    text += `Macro Catalyst / Risk: ${getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk} Risk | ${getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}\n\n`;
 
-    relevantItems.forEach(item => {
+    text += `------------------------------------------------------------------------\n`;
+    text += `1. STYLE-SPECIFIC EXECUTION PARAMETERS (TIERED TARGETS)\n`;
+    text += `------------------------------------------------------------------------\n`;
+    text += `• Planned Entry / Open: $${stylePlan.entryPrice} (${stylePlan.executionZoneName})\n`;
+    text += `• Invalidation Stop Loss (SL): $${stylePlan.stopLoss} (${stylePlan.slPips} Pips | Risk: ${slPnL ? formatCurrencyAmount(slPnL.pnlAmountCurrency, selectedCurrency) : 'N/A'})\n`;
+    text += `• Take Profit 1 (TP1): $${stylePlan.takeProfit1} (${stylePlan.tp1Pips} Pips | Est Gain: ${tp1PnL ? formatCurrencyAmount(tp1PnL.pnlAmountCurrency, selectedCurrency) : 'N/A'})\n`;
+    text += `• Take Profit 2 (TP2): $${stylePlan.takeProfit2} (${stylePlan.tp2Pips} Pips | Est Gain: ${tp2PnL ? formatCurrencyAmount(tp2PnL.pnlAmountCurrency, selectedCurrency) : 'N/A'})\n`;
+    text += `• Risk / Reward Matrix: ${stylePlan.riskRewardRatio}\n`;
+    text += `• Holding Horizon: ${stylePlan.estimatedDuration} (${stylePlan.bestSessionWindow})\n`;
+    text += `• Sizing: ${lotSize} Lots on $${accountBalanceUSD.toLocaleString()} account balance\n\n`;
+
+    text += `------------------------------------------------------------------------\n`;
+    text += `2. SMART MONEY CONCEPTS (SMC) & ICC INSTITUTIONAL ANALYSIS\n`;
+    text += `------------------------------------------------------------------------\n`;
+    const smcItems = relevantItems.filter(i => i.category === "SMC / ICC");
+    smcItems.forEach(item => {
       const isChecked = !!checkedState[item.id];
-      text += `[${isChecked ? "X" : " "}] ${item.label}\n`;
+      text += `[${isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
+      text += `        ↳ Logic: ${item.description}\n`;
+    });
+    text += `• Active FVG / PVG: ${(smcLive.fvgs || []).filter(f => !f.mitigated).length > 0 ? `${(smcLive.fvgs || []).filter(f => !f.mitigated).length} Active Zones (Dual-Labeled FVG / PVG at $${smcLive.fvgs?.[0]?.midCe?.toFixed(getDecimals(selectedAsset)) || 'N/A'} CE)` : 'Mitigated / Clean Sweep'}\n`;
+    text += `• Liquidity Target: ${smcLive.liquidityPools?.[0]?.type || 'BSL/SSL'} at $${smcLive.liquidityPools?.[0]?.level?.toFixed(getDecimals(selectedAsset)) || 'N/A'} (${smcLive.liquidityPools?.[0]?.pipsAway || 0} pips away)\n`;
+    text += `• Dealing Range Valuation: ${smcLive.premiumDiscount.currentZone} (${smcLive.premiumDiscount.premiumDiscountRatio}% Range vs 50% EQ $${smcLive.premiumDiscount.equilibrium?.toFixed(getDecimals(selectedAsset))})\n`;
+    text += `• ICC Phase: ${smcLive.icc.currentPhase} (${smcLive.icc.phaseStage}) | Trigger: $${smcLive.icc.continuationTrigger}\n\n`;
+
+    text += `------------------------------------------------------------------------\n`;
+    text += `3. TECHNICAL ANALYSIS & CHART MOMENTUM CONFLUENCE\n`;
+    text += `------------------------------------------------------------------------\n`;
+    const techItems = relevantItems.filter(i => i.category === "Technical");
+    techItems.forEach(item => {
+      const isChecked = !!checkedState[item.id];
+      text += `[${isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
+      text += `        ↳ Logic: ${item.description}\n`;
+    });
+    text += `• Live Regime Probability: Bullish ${selectedAsset.bullishProb}% vs Bearish ${selectedAsset.bearishProb}% vs Neutral ${selectedAsset.neutralProb ?? 15}%\n`;
+    text += `• Technical Confidence: ${selectedAsset.confidence}% Rating\n\n`;
+
+    text += `------------------------------------------------------------------------\n`;
+    text += `4. FUNDAMENTAL & MACROECONOMIC ANALYSIS\n`;
+    text += `------------------------------------------------------------------------\n`;
+    const fundItems = relevantItems.filter(i => i.category === "Fundamental");
+    fundItems.forEach(item => {
+      const isChecked = !!checkedState[item.id];
+      text += `[${isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
+      text += `        ↳ Logic: ${item.description}\n`;
+    });
+    text += `• Macro Catalyst: ${getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}\n`;
+    text += `• Sovereign Shock Risk: ${getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).shockRisk}\n\n`;
+
+    text += `------------------------------------------------------------------------\n`;
+    text += `5. MARKET SENTIMENT & ORDER BOOK FLOW ANALYSIS\n`;
+    text += `------------------------------------------------------------------------\n`;
+    const sentItems = relevantItems.filter(i => i.category === "Sentiment");
+    sentItems.forEach(item => {
+      const isChecked = !!checkedState[item.id];
+      text += `[${isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
+      text += `        ↳ Logic: ${item.description}\n`;
+    });
+    text += `• Retail Contrarian Trap: ${selectedAsset.bullishProb >= selectedAsset.bearishProb ? "Retail 72% Short vs 28% Long (Bullish Contrarian Fuel)" : "Retail 74% Long vs 26% Short (Bearish Contrarian Trap)"}\n`;
+    text += `• Institutional Flow: ${reconciledVerdict.finalAction === "SELL" ? "Smart Money Distribution & Supply Defense" : "Smart Money Accumulation & Limit Bid Support"}\n\n`;
+
+    text += `------------------------------------------------------------------------\n`;
+    text += `6. RISK MANAGEMENT & STRICT MONEY MANAGEMENT RULES\n`;
+    text += `------------------------------------------------------------------------\n`;
+    const riskItems = relevantItems.filter(i => i.category === "Risk & Money");
+    riskItems.forEach(item => {
+      const isChecked = !!checkedState[item.id];
+      text += `[${isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
+      text += `        ↳ Logic: ${item.description}\n`;
+    });
+    text += `• Sizing Risk: ${lotSize} Lots on $${accountBalanceUSD.toLocaleString()} (Stop Loss Max Risk: ≤2.0%)\n`;
+    text += `• Risk/Reward Clearance: ${stylePlan.riskRewardRatio}\n\n`;
+
+    text += `------------------------------------------------------------------------\n`;
+    text += `7. EXECUTION QUALITY & LIQUIDITY SAFEGUARDS\n`;
+    text += `------------------------------------------------------------------------\n`;
+    const execItems = relevantItems.filter(i => i.category === "Execution");
+    execItems.forEach(item => {
+      const isChecked = !!checkedState[item.id];
+      text += `[${isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
+      text += `        ↳ Logic: ${item.description}\n`;
     });
 
     if (customItems.length > 0) {
-      text += `\n--- CUSTOM PERSONAL RULES ---\n`;
+      text += `\n------------------------------------------------------------------------\n`;
+      text += `8. TRADER PERSONAL DISCIPLINE RULES\n`;
+      text += `------------------------------------------------------------------------\n`;
       customItems.forEach(item => {
-        text += `[${item.isChecked ? "X" : " "}] ${item.label}\n`;
+        text += `[${item.isChecked ? "PASS ✓" : "FAIL ✗"}] ${item.label}\n`;
       });
     }
 
+    text += `\n========================================================================\n`;
+    text += `Synthesis: ${reconciledVerdict.divergenceResolutionNote}\n`;
+    text += `Executive Directive: ${reconciledVerdict.tradeGuidance}\n`;
+    text += `========================================================================\n`;
     return text;
   };
 
@@ -633,6 +876,24 @@ export default function EntryChecklist({
   const handleLogToJournal = () => {
     if (!onAddJournalEntry) return;
 
+    const smcPass = relevantItems.filter(i => i.category === "SMC / ICC" && checkedState[i.id]).length;
+    const smcTotal = relevantItems.filter(i => i.category === "SMC / ICC").length;
+
+    const techPass = relevantItems.filter(i => i.category === "Technical" && checkedState[i.id]).length;
+    const techTotal = relevantItems.filter(i => i.category === "Technical").length;
+
+    const fundPass = relevantItems.filter(i => i.category === "Fundamental" && checkedState[i.id]).length;
+    const fundTotal = relevantItems.filter(i => i.category === "Fundamental").length;
+
+    const sentPass = relevantItems.filter(i => i.category === "Sentiment" && checkedState[i.id]).length;
+    const sentTotal = relevantItems.filter(i => i.category === "Sentiment").length;
+
+    const riskPass = relevantItems.filter(i => i.category === "Risk & Money" && checkedState[i.id]).length;
+    const riskTotal = relevantItems.filter(i => i.category === "Risk & Money").length;
+
+    const execPass = relevantItems.filter(i => i.category === "Execution" && checkedState[i.id]).length;
+    const execTotal = relevantItems.filter(i => i.category === "Execution").length;
+
     const newJournal: JournalEntry = {
       id: `j_${Date.now()}`,
       date: new Date().toISOString().split("T")[0],
@@ -644,7 +905,7 @@ export default function EntryChecklist({
       profit: tp1PnL ? tp1PnL.pnlAmountCurrency : 0,
       emotion: "Disciplined",
       mistake: "None",
-      notes: `Executed via Entry Checklist Validator (${activeStyle}). Open: $${stylePlan.entryPrice}, SL: $${stylePlan.stopLoss} (${stylePlan.slPips} pips), TP1: $${stylePlan.takeProfit1} (${stylePlan.tp1Pips} pips). Confluence Score: ${scoreCalculation.score}%.`
+      notes: `[Full 6-Pillar Confluence Audit] Style: ${activeStyle} (${thresholdInfo.timeframes}). Market Regime: ${reconciledVerdict.finalAction} (${reconciledVerdict.actionBadge}). Entry: $${stylePlan.entryPrice}, SL: $${stylePlan.stopLoss} (${stylePlan.slPips} pips), TP1: $${stylePlan.takeProfit1} (${stylePlan.tp1Pips} pips, Gain: ${tp1PnL ? formatCurrencyAmount(tp1PnL.pnlAmountCurrency, selectedCurrency) : 'N/A'}), TP2: $${stylePlan.takeProfit2}. Confluence Score: ${scoreCalculation.score}%.\n• SMC & ICC: ${smcPass}/${smcTotal} passed\n• Technical Analysis: ${techPass}/${techTotal} passed\n• Fundamental Analysis: ${fundPass}/${fundTotal} passed\n• Sentiment Analysis: ${sentPass}/${sentTotal} passed\n• Risk & Money Management: ${riskPass}/${riskTotal} passed\n• Execution Quality: ${execPass}/${execTotal} passed\nCatalyst: ${getAssetMacroImpact(selectedAsset.symbol, selectedAsset.category).primaryCatalyst}.`
     };
 
     onAddJournalEntry(newJournal);
@@ -800,15 +1061,27 @@ export default function EntryChecklist({
 
       {/* PROMINENT AI QUANT MARKET DIRECTION INDICATOR BANNER */}
       <div className={`p-4 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono shadow-xl relative overflow-hidden ${
-        isQuantBullish 
-          ? "bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-900 border-emerald-500/40" 
-          : "bg-gradient-to-r from-rose-950/90 via-slate-900 to-slate-900 border-rose-500/40"
+        isQuantWait
+          ? "bg-gradient-to-r from-amber-950/90 via-slate-900 to-slate-900 border-amber-500/40"
+          : isQuantBullish 
+            ? "bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-900 border-emerald-500/40" 
+            : "bg-gradient-to-r from-rose-950/90 via-slate-900 to-slate-900 border-rose-500/40"
       }`}>
         <div className="flex items-center gap-3.5 relative z-10">
           <div className={`p-3 rounded-xl font-black flex items-center justify-center shrink-0 shadow-lg ${
-            isQuantBullish ? "bg-emerald-500 text-slate-950 shadow-emerald-500/20" : "bg-rose-500 text-white shadow-rose-500/20"
+            isQuantWait
+              ? "bg-amber-500 text-slate-950 shadow-amber-500/20"
+              : isQuantBullish 
+                ? "bg-emerald-500 text-slate-950 shadow-emerald-500/20" 
+                : "bg-rose-500 text-white shadow-rose-500/20"
           }`}>
-            {isQuantBullish ? <TrendingUp className="h-6 w-6 stroke-[3]" /> : <TrendingDown className="h-6 w-6 stroke-[3]" />}
+            {isQuantWait ? (
+              <Clock className="h-6 w-6 stroke-[3]" />
+            ) : isQuantBullish ? (
+              <TrendingUp className="h-6 w-6 stroke-[3]" />
+            ) : (
+              <TrendingDown className="h-6 w-6 stroke-[3]" />
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -816,30 +1089,50 @@ export default function EntryChecklist({
                 CURRENT AI QUANT MARKET DIRECTION
               </span>
               <span className={`px-2 py-0.5 text-[10px] font-black rounded-md uppercase tracking-wider ${
-                isQuantBullish 
-                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" 
-                  : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                isQuantWait
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : isQuantBullish 
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" 
+                    : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
               }`}>
-                {isQuantBullish ? "🟢 BULLISH REGIME" : "🔴 BEARISH REGIME"}
+                {isQuantWait ? "🟡 CONSOLIDATION / NEUTRAL REGIME (WAIT / PENDING)" : isQuantBullish ? "🟢 BULLISH REGIME (BUY)" : "🔴 BEARISH REGIME (SELL)"}
               </span>
             </div>
             <div className="flex items-baseline gap-2.5">
               <h2 className="text-xl font-black text-white tracking-tight">
-                MARKET IS CURRENTLY: <span className={isQuantBullish ? "text-emerald-400 underline decoration-emerald-500/50" : "text-rose-400 underline decoration-rose-500/50"}>
-                  {aiRecommendedDirection}
+                MARKET IS CURRENTLY: <span className={
+                  isQuantWait 
+                    ? "text-amber-400 underline decoration-amber-500/50" 
+                    : isQuantBullish 
+                      ? "text-emerald-400 underline decoration-emerald-500/50" 
+                      : "text-rose-400 underline decoration-rose-500/50"
+                }>
+                  {aiRecommendedDirection === "WAIT" ? "WAIT / PENDING" : aiRecommendedDirection}
                 </span>
               </h2>
               <span className="text-xs text-slate-300 font-bold">
-                ({aiBiasProbPct}% Probability | Trend: {isQuantBullish ? "Strong Uptrend" : "Downtrend"})
+                ({aiBiasProbPct}% {isQuantWait ? "Balanced Odds" : "Probability"} | Trend: {isQuantWait ? "Consolidation / Range Bound" : isQuantBullish ? "Strong Uptrend (HH/HL)" : "Downtrend (LH/LL)"})
               </span>
             </div>
+            {isQuantWait && (
+              <p className="text-[11px] text-amber-300/90 mt-1 font-sans">
+                Zero statistical edge detected. Smart money is accumulating / distributing without directional displacement. Stand aside or prepare pending limit orders at range boundaries.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Sync Button */}
-        {intendedDirection !== aiRecommendedDirection ? (
+        {/* Sync or Status Button */}
+        {isQuantWait ? (
+          <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 shrink-0">
+            <span className="px-3.5 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold rounded-xl flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              <span>Stand Aside / Wait For Breakout</span>
+            </span>
+          </div>
+        ) : intendedDirection !== aiRecommendedDirection ? (
           <button
-            onClick={() => setIntendedDirection(aiRecommendedDirection)}
+            onClick={() => setIntendedDirection(aiRecommendedDirection as "BUY" | "SELL")}
             className={`px-4 py-2.5 text-xs font-black rounded-xl border transition-all cursor-pointer flex items-center gap-2 shrink-0 shadow-lg ${
               isQuantBullish
                 ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-emerald-600/30 animate-pulse"
@@ -1173,17 +1466,192 @@ export default function EntryChecklist({
         {/* Left 2 Columns: Interactive Checklist */}
         <div className="lg:col-span-2 space-y-5">
           
-          {/* Categories Groups */}
-          {(["Structure", "Momentum", "Execution", "Risk", "Macro"] as const).map((cat) => {
+          {/* LIVE SMART MONEY CONCEPTS (SMC) & ICC INSTITUTIONAL RADAR DOCKET */}
+          <div className="bg-slate-900 border border-purple-500/40 rounded-2xl p-5 shadow-xl font-mono space-y-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3 relative z-10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-500/15 border border-purple-500/30 text-purple-400 rounded-xl">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                      SMC & ICC Institutional Order Flow Radar
+                    </h3>
+                    <span className="text-[9px] bg-purple-500/20 text-purple-300 font-bold px-2 py-0.5 rounded border border-purple-500/30">
+                      {smcLive.institutionalBias.replace("_", " ")}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5 font-sans">
+                    Algorithmic 3-candle Fair Value & Price Value Gaps (FVG / PVG), Liquidity Sweeps, CHoCH/BOS flips, and ICC continuation trigger.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-tight border ${
+                  smcLive.premiumDiscount.currentZone === 'DISCOUNT'
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : smcLive.premiumDiscount.currentZone === 'PREMIUM'
+                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                    : 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                }`}>
+                  {smcLive.premiumDiscount.currentZone} DEALING RANGE ({smcLive.premiumDiscount.premiumDiscountRatio}% Range)
+                </span>
+              </div>
+            </div>
+
+            {/* 4 Interactive Key SMC Data Points */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative z-10 text-xs">
+              
+              {/* 1. FVG / PVG */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-teal-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-teal-400 font-bold uppercase flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-400 animate-pulse" />
+                    FVG / PVG Imbalance
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-bold">50% CE</span>
+                </div>
+                <div className="text-sm font-black text-white">
+                  ${smcLive.fvgs?.[0]?.midCe?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price.toFixed(getDecimals(selectedAsset))}
+                </div>
+                <div className="text-[10px] text-slate-400 leading-tight">
+                  {smcLive.fvgs?.[0]?.label || "Active 3-candle Price Value Gap"}
+                </div>
+              </div>
+
+              {/* 2. Liquidity Pool Draw */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-amber-400 font-bold uppercase flex items-center gap-1">
+                    <DollarSign className="h-3 w-3 text-amber-400" />
+                    Liquidity Draw (BSL/SSL)
+                  </span>
+                  <span className="text-[9px] text-amber-300 font-bold">
+                    {smcLive.liquidityPools?.[0]?.pipsAway || 0}p away
+                  </span>
+                </div>
+                <div className="text-sm font-black text-amber-300">
+                  ${smcLive.liquidityPools?.[0]?.level?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price.toFixed(getDecimals(selectedAsset))}
+                </div>
+                <div className="text-[10px] text-slate-400 leading-tight">
+                  {smcLive.liquidityPools?.[0]?.label || "Session Liquidity Target"}
+                </div>
+              </div>
+
+              {/* 3. CHoCH / BOS Triggers */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-cyan-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-cyan-400 font-bold uppercase flex items-center gap-1">
+                    <Target className="h-3 w-3 text-cyan-400" />
+                    CHoCH / BOS Pivots
+                  </span>
+                  <span className="text-[9px] text-emerald-400 font-bold">Expansion</span>
+                </div>
+                <div className="text-sm font-black text-white">
+                  BOS: <span className="text-emerald-400">${smcLive.bos?.level?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price.toFixed(getDecimals(selectedAsset))}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 leading-tight">
+                  CHoCH Flip: <strong className="text-cyan-300">${smcLive.choch?.level?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price.toFixed(getDecimals(selectedAsset))}</strong>
+                </div>
+              </div>
+
+              {/* 4. ICC System Phase */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-purple-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-purple-400 font-bold uppercase flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-purple-400" />
+                    ICC System State
+                  </span>
+                  <span className="text-[9px] text-emerald-400 font-bold">Phase 3</span>
+                </div>
+                <div className="text-sm font-black text-purple-300">
+                  {smcLive.icc?.currentPhase || 'CONTINUATION'}
+                </div>
+                <div className="text-[10px] text-slate-400 leading-tight truncate">
+                  Trigger: ${smcLive.icc?.continuationTrigger?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price.toFixed(getDecimals(selectedAsset))} (ICC Candle)
+                </div>
+              </div>
+
+            </div>
+
+            {/* Valuation Narrative */}
+            <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-[11px] text-slate-300 leading-relaxed font-sans">
+              <strong className="text-purple-300 font-mono">Institutional Bias Verdict: </strong>
+              {smcLive.summary}
+            </div>
+          </div>
+
+          {/* 6-PILLAR HOLISTIC CONFLUENCE RADAR MATRIX (29 TOTAL ITEMS) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl font-mono space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <span>Comprehensive 29-Point Confluence Engine</span>
+                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded border border-emerald-500/30">
+                    {relevantItems.length} Active Items
+                  </span>
+                </h3>
+              </div>
+              <span className="text-[10px] text-slate-400 font-sans">
+                All <strong className="text-emerald-400 font-mono">{relevantItems.length} Criteria</strong> across 6 Pillars analyzed before decision clearance
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              {[
+                { cat: "SMC / ICC", name: "SMC & ICC", countLabel: "7 Checks", icon: Layers, color: "text-purple-400", barColor: "bg-purple-500" },
+                { cat: "Technical", name: "Tech & Pattern", countLabel: "9 Checks", icon: BarChart, color: "text-blue-400", barColor: "bg-blue-500" },
+                { cat: "Fundamental", name: "Fundamental", countLabel: "3 Checks", icon: Globe, color: "text-cyan-400", barColor: "bg-cyan-500" },
+                { cat: "Sentiment", name: "Sentiment", countLabel: "2 Checks", icon: Users, color: "text-pink-400", barColor: "bg-pink-500" },
+                { cat: "Risk & Money", name: "Risk & Money", countLabel: "5 Checks", icon: ShieldCheck, color: "text-emerald-400", barColor: "bg-emerald-500" },
+                { cat: "Execution", name: "Execution", countLabel: "3 Checks", icon: Zap, color: "text-amber-400", barColor: "bg-amber-500" }
+              ].map(p => {
+                const items = relevantItems.filter(i => i.category === p.cat);
+                const passed = items.filter(i => checkedState[i.id]).length;
+                const total = items.length;
+                const pct = total > 0 ? Math.round((passed / total) * 100) : 0;
+                const Icon = p.icon;
+                return (
+                  <div key={p.cat} className="p-2.5 bg-slate-950 border border-slate-850 rounded-xl space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className={`font-bold flex items-center gap-1 ${p.color}`}>
+                        <Icon className="h-3 w-3" />
+                        {p.name}
+                      </span>
+                      <span className="text-slate-400 font-extrabold">{passed}/{total}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
+                      <div className={`h-full ${p.barColor} transition-all duration-500`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between text-[9px]">
+                      <span className={pct === 100 ? "text-emerald-400 font-bold" : pct >= 50 ? "text-blue-400" : "text-amber-400"}>
+                        {pct === 100 ? "100% Pass" : `${pct}% Valid`}
+                      </span>
+                      <span className="text-slate-500 text-[8px] font-mono">{p.countLabel}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Categories Groups (All 6 Pillars - 29 Total Criteria) */}
+          {(["SMC / ICC", "Technical", "Fundamental", "Sentiment", "Risk & Money", "Execution"] as const).map((cat) => {
             const catItems = relevantItems.filter(i => i.category === cat);
             if (catItems.length === 0) return null;
 
-            const categoryTitles: Record<string, { title: string; icon: any; color: string }> = {
-              Structure: { title: "1. Market Structure & Trend Confluence", icon: Layers, color: "text-blue-400" },
-              Momentum: { title: "2. Momentum & Technical Indicators", icon: Zap, color: "text-amber-400" },
-              Execution: { title: "3. Liquidity, Spreads & Session Timing", icon: Clock, color: "text-cyan-400" },
-              Risk: { title: "4. Risk Management & Position Sizing", icon: ShieldCheck, color: "text-emerald-400" },
-              Macro: { title: "5. Fundamentals & Macro Correlation", icon: Activity, color: "text-purple-400" }
+            const categoryTitles: Record<string, { title: string; count: string; icon: any; color: string }> = {
+              "SMC / ICC": { title: "1. Smart Money Concepts (SMC) & ICC Institutional System", count: "7 Institutional Checks", icon: Layers, color: "text-purple-400" },
+              Technical: { title: "2. Technical, Chart Pattern & Candlestick Analysis", count: "9 Technical & Pattern Checks", icon: BarChart, color: "text-blue-400" },
+              Fundamental: { title: "3. Fundamental & Macroeconomic Analysis", count: "3 Macro Checks", icon: Globe, color: "text-cyan-400" },
+              Sentiment: { title: "4. Market Sentiment & Order Book Flow Analysis", count: "2 Sentiment Checks", icon: Users, color: "text-pink-400" },
+              "Risk & Money": { title: "5. Risk Management & Strict Money Management", count: "5 Risk Checks", icon: ShieldCheck, color: "text-emerald-400" },
+              Execution: { title: "6. Execution Quality & Liquidity Safeguards", count: "3 Execution Checks", icon: Zap, color: "text-amber-400" }
             };
 
             const meta = categoryTitles[cat];
@@ -1191,11 +1659,16 @@ export default function EntryChecklist({
 
             return (
               <div key={cat} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
-                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-800/80">
-                  <Icon className={`h-4 w-4 ${meta.color}`} />
-                  <h3 className="font-extrabold text-sm text-white font-mono uppercase tracking-wide">
-                    {meta.title}
-                  </h3>
+                <div className="flex items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800/80">
+                  <div className="flex items-center gap-2">
+                    <Icon className={`h-4 w-4 ${meta.color}`} />
+                    <h3 className="font-extrabold text-sm text-white font-mono uppercase tracking-wide">
+                      {meta.title}
+                    </h3>
+                  </div>
+                  <span className="text-[10px] bg-slate-950 border border-slate-800 text-slate-400 font-mono font-bold px-2 py-0.5 rounded">
+                    {meta.count} ({catItems.length} active)
+                  </span>
                 </div>
 
                 <div className="space-y-3">

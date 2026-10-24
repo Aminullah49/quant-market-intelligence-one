@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { MarketAsset, MarketAnalysisResponse } from "../types";
-import { getDecimals, getUnifiedSupportResistance, calculateUnifiedScore } from "../utils";
+import { getDecimals, getUnifiedSupportResistance, calculateUnifiedScore, calculateSmartMoneyConcepts } from "../utils";
 import { 
   TrendingUp, TrendingDown, HelpCircle, FileText, AlertTriangle, AlertCircle,
   BarChart, Globe, Zap, Cpu, Compass, Layers, Sparkles, CheckCircle2, ChevronRight,
@@ -45,7 +45,7 @@ export default function MarketAnalysis({
 }: MarketAnalysisProps) {
   // Main sub-tabs: core radar vs timeframe analysis vs overall result vs trader archetype execution vs live news wire
   const [currentSubTab, setCurrentSubTab] = useState<'radar' | 'news' | 'timeframe' | 'overall' | 'traders'>('radar');
-  const [activeTab, setActiveTab] = useState<'technical' | 'fundamental' | 'sentiment'>('technical');
+  const [activeTab, setActiveTab] = useState<'technical' | 'fundamental' | 'sentiment' | 'smc'>('technical');
 
   // Direct STP order routing from Market Analysis
   const [isExecutingAnalysisOrder, setIsExecutingAnalysisOrder] = useState(false);
@@ -274,6 +274,17 @@ export default function MarketAnalysis({
   // Quantitative Reconciled Verdict (resolving Technical vs Macro News Divergence)
   const reconciledVerdict = reconcileTechnicalAndFundamental(selectedAsset, selectedTimeframe);
   const explicitAction: "BUY" | "SELL" | "WAIT" = reconciledVerdict.finalAction;
+
+  // Live Smart Money Concepts (SMC) & ICC Analysis
+  const smcLiveAnalysis = React.useMemo(() => {
+    return calculateSmartMoneyConcepts(
+      selectedAsset.price,
+      explicitAction === "SELL" ? "SELL" : "BUY",
+      selectedTimeframe,
+      getDecimals(selectedAsset),
+      selectedAsset.category
+    );
+  }, [selectedAsset.price, explicitAction, selectedTimeframe, selectedAsset.category, selectedAsset.symbol]);
 
   // Weighted aggregate Overall Confluence Score
   const overallConfluenceScore = Math.round(
@@ -629,7 +640,7 @@ export default function MarketAnalysis({
               {/* Explainable AI reasoning block */}
               <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <div className="flex border-b border-slate-800 pb-3 gap-4">
-                  {(['technical', 'fundamental', 'sentiment'] as const).map((tab) => (
+                  {(['technical', 'fundamental', 'sentiment', 'smc'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
@@ -637,7 +648,7 @@ export default function MarketAnalysis({
                         activeTab === tab ? 'text-blue-400' : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
-                      {tab} Analysis
+                      {tab === 'smc' ? 'SMC & ICC Institutional' : `${tab} Analysis`}
                       {activeTab === tab && (
                         <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400 rounded-full" />
                       )}
@@ -651,32 +662,48 @@ export default function MarketAnalysis({
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <div className="p-2.5 bg-slate-950 border border-slate-800/60 rounded">
                           <div className="text-[10px] text-slate-500 font-mono uppercase">RSI (14)</div>
-                          <div className="text-slate-200 font-mono font-semibold mt-0.5">54.2 - Neutral</div>
+                          <div className={`font-mono font-semibold mt-0.5 ${isBullish ? 'text-slate-200' : 'text-rose-400'}`}>
+                            {isBullish ? "56.4 - Bullish Drift" : "38.2 - Bearish Momentum"}
+                          </div>
                         </div>
                         <div className="p-2.5 bg-slate-950 border border-slate-800/60 rounded">
                           <div className="text-[10px] text-slate-500 font-mono uppercase">MACD (12, 26)</div>
-                          <div className="text-emerald-400 font-mono font-semibold mt-0.5">Bullish Crossover</div>
+                          <div className={`font-mono font-semibold mt-0.5 ${isBullish ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isBullish ? "Bullish Crossover" : "Bearish Divergence / Expanding Red Bars"}
+                          </div>
                         </div>
                         <div className="p-2.5 bg-slate-950 border border-slate-800/60 rounded">
                           <div className="text-[10px] text-slate-500 font-mono uppercase">ATR (14)</div>
-                          <div className="text-slate-200 font-mono font-semibold mt-0.5">Moderate Volatility</div>
+                          <div className="text-slate-200 font-mono font-semibold mt-0.5">
+                            {selectedAsset.category === 'Crypto' ? 'High ATR Expansion' : 'Normal Session Volatility'}
+                          </div>
                         </div>
                         <div className="p-2.5 bg-slate-950 border border-slate-800/60 rounded">
                           <div className="text-[10px] text-slate-500 font-mono uppercase">VWAP</div>
-                          <div className="text-emerald-400 font-mono font-semibold mt-0.5">Above (Support)</div>
+                          <div className={`font-mono font-semibold mt-0.5 ${isBullish ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isBullish ? "Above (Support Floor)" : "Below (Resistance Overhead)"}
+                          </div>
                         </div>
                         <div className="p-2.5 bg-slate-950 border border-slate-800/60 rounded">
-                          <div className="text-[10px] text-slate-500 font-mono uppercase">ADX (14)</div>
-                          <div className="text-slate-200 font-mono font-semibold mt-0.5">28.5 - Strong Trend</div>
+                          <div className="text-[10px] text-slate-500 font-mono uppercase">Trend Structure</div>
+                          <div className={`font-mono font-semibold mt-0.5 ${isBullish ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isBullish ? "Bullish (HH / HL)" : "Bearish (LH / LL)"}
+                          </div>
                         </div>
                         <div className="p-2.5 bg-slate-950 border border-slate-800/60 rounded">
                           <div className="text-[10px] text-slate-500 font-mono uppercase">Fibonacci 61.8%</div>
-                          <div className="text-emerald-400 font-mono font-semibold mt-0.5">Respected Zone</div>
+                          <div className={`font-mono font-semibold mt-0.5 ${isBullish ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {isBullish ? "Golden Pocket Bounce" : "Rejected at 61.8% Supply"}
+                          </div>
                         </div>
                       </div>
 
                       <p className="text-slate-300 leading-relaxed italic bg-slate-950/40 p-3 border border-slate-800/50 rounded-lg font-mono">
-                        {analysisData?.technicalSummary || "The 20 EMA is trending consistently above the 50 SMA. Price actions are establishing structural higher lows (HL) right around the 61.8% Fibonacci golden pocket, confirming stable institutional-side accumulation dynamics."}
+                        {analysisData?.technicalSummary || (
+                          isBullish 
+                            ? "The 20 EMA is trending consistently above the 50 SMA. Price actions are establishing structural higher lows (HL) right around the 61.8% Fibonacci golden pocket, confirming stable institutional accumulation."
+                            : "The 20 EMA has crossed beneath the 50 SMA. Price action is establishing structural lower highs (LH) and rejecting institutional supply order blocks, confirming directional distribution and downside momentum."
+                        )}
                       </p>
                     </div>
                   )}
@@ -691,38 +718,52 @@ export default function MarketAnalysis({
                         {selectedAsset.category === 'Crypto' ? (
                           <>
                             <div className="flex justify-between">
-                              <span className="text-slate-300 font-mono">Spot ETF Flows</span>
-                              <span className="text-emerald-400 font-mono font-semibold">+$240M Net Inflow</span>
+                              <span className="text-slate-300 font-mono">Spot ETF Net Flow</span>
+                              <span className={`font-mono font-semibold ${isBullish ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {isBullish ? "+$240M Net Inflow" : "-$185M Net Institutional Outflow"}
+                              </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-300 font-mono">Hashrate Security</span>
-                              <span className="text-slate-200 font-mono">All-Time High</span>
+                              <span className="text-slate-300 font-mono">Network Activity & Hashrate</span>
+                              <span className="text-slate-200 font-mono">High Security Baselined</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-300 font-mono">MVRV Z-Score</span>
-                              <span className="text-amber-400 font-mono">2.14 (Moderate Value)</span>
+                              <span className="text-slate-300 font-mono">MVRV Valuation Z-Score</span>
+                              <span className="text-amber-400 font-mono">
+                                {isBullish ? "2.14 (Moderate Accumulation)" : "3.48 (Overextended Distribution)"}
+                              </span>
                             </div>
                           </>
                         ) : (
                           <>
                             <div className="flex justify-between">
-                              <span className="text-slate-300 font-mono">Central Bank Rate</span>
-                              <span className="text-slate-200 font-mono">5.25% (Fed Pivot Anticipated)</span>
+                              <span className="text-slate-300 font-mono">Central Bank Rate Policy</span>
+                              <span className="text-slate-200 font-mono">
+                                {isBullish ? "5.25% (Accommodative Bias)" : "Restrictive Stance / Yield Inversion"}
+                              </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-300 font-mono">Core CPI MoM</span>
-                              <span className="text-emerald-400 font-mono font-semibold">0.2% (Cooling Inflation)</span>
+                              <span className="text-slate-300 font-mono">Core Inflation MoM</span>
+                              <span className={`font-mono font-semibold ${isBullish ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                {isBullish ? "0.2% (Cooling Inflationary Pressures)" : "0.4% (Sticky Input Inflation)"}
+                              </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-300 font-mono">GDP QoQ</span>
-                              <span className="text-slate-200 font-mono">2.1% (Stable Growth)</span>
+                              <span className="text-slate-300 font-mono">Sovereign Yields (10Y)</span>
+                              <span className="text-slate-200 font-mono">
+                                {isBullish ? "Yields Retracting (Risk-On)" : "Yields Spiking (Liquidity Drain)"}
+                              </span>
                             </div>
                           </>
                         )}
                       </div>
 
                       <p className="text-slate-300 leading-relaxed italic bg-slate-950/40 p-3 border border-slate-800/50 rounded-lg font-mono">
-                        {analysisData?.fundamentalSummary || "Macro monetary indicators imply cooling inflation pressure. Bonds yields are cooling, giving minor risk assets and high-liquidity pairings extra room to scale ahead of key FOMC releases."}
+                        {analysisData?.fundamentalSummary || (
+                          isBullish
+                            ? "Macro monetary indicators imply steady capital inflows and cooling yield pressure, giving high-liquidity assets room for upward trend extension."
+                            : "Macro monetary indicators indicate hawkish yield pressure and institutional liquidity withdrawal, triggering defensive short hedges across sovereign markets."
+                        )}
                       </p>
                     </div>
                   )}
@@ -733,24 +774,36 @@ export default function MarketAnalysis({
                         <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-lg">
                           <div className="text-[10px] text-slate-500 font-mono mb-2 uppercase">Retail Sentiment Index</div>
                           <div className="flex items-center justify-between font-mono">
-                            <span className="text-rose-400">72% Short</span>
+                            <span className={isBullish ? "text-rose-400" : "text-emerald-400"}>
+                              {isBullish ? "72% Short" : "74% Long (Retail Trapped)"}
+                            </span>
                             <span className="text-slate-500">vs</span>
-                            <span className="text-emerald-400">28% Long</span>
+                            <span className={isBullish ? "text-emerald-400" : "text-rose-400"}>
+                              {isBullish ? "28% Long" : "26% Short"}
+                            </span>
                           </div>
                           <div className="h-2 w-full bg-slate-900 rounded-full mt-2 overflow-hidden flex">
-                            <div className="h-full bg-rose-500" style={{ width: '72%' }} />
-                            <div className="h-full bg-emerald-500" style={{ width: '28%' }} />
+                            <div className={`h-full ${isBullish ? "bg-rose-500" : "bg-emerald-500"}`} style={{ width: isBullish ? '72%' : '74%' }} />
+                            <div className={`h-full ${isBullish ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: isBullish ? '28%' : '26%' }} />
                           </div>
-                          <span className="text-[9px] text-emerald-400 mt-1.5 block font-mono">Contrarian Signal: Strong Bullish Bias</span>
+                          <span className={`text-[9px] mt-1.5 block font-mono ${isBullish ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isBullish 
+                              ? "Contrarian Signal: Strong Bullish Bias (Retail Heavily Short)" 
+                              : "Contrarian Signal: Strong Bearish Bias (Retail Trapped Long)"}
+                          </span>
                         </div>
 
                         <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-lg">
                           <div className="text-[10px] text-slate-500 font-mono mb-2 uppercase">Institutional Order Book Flow</div>
                           <div className="flex items-center justify-between font-mono">
-                            <span className="text-emerald-400 font-semibold">Accumulation Regime</span>
+                            <span className={`font-semibold ${isBullish ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {isBullish ? "Accumulation Regime" : "Distribution & Supply Engineering Regime"}
+                            </span>
                           </div>
                           <p className="text-[10px] text-slate-400 mt-1 leading-relaxed font-mono">
-                            Smart money blocks detect heavy limit orders building below key liquidity sweep points. Blocks are highly defended.
+                            {isBullish
+                              ? "Smart money desks detect heavy iceberg limit buy orders defending discount swing low liquidity pools."
+                              : "Smart money desks detect aggressive sell-side liquidity engineering on rallies, utilizing retail breakout buy stops for distribution."}
                           </p>
                         </div>
                       </div>
@@ -776,8 +829,73 @@ export default function MarketAnalysis({
                       </div>
 
                       <p className="text-slate-300 leading-relaxed italic bg-slate-950/40 p-3 border border-slate-800/50 rounded-lg font-mono">
-                        {analysisData?.sentimentSummary || "Retail accounts are heavily crowded in short positions. Contending with this sentiment, proprietary order desks are sweeping discount sell-side stops, reinforcing probability-based continuation upward."}
+                        {analysisData?.sentimentSummary || (
+                          isBullish
+                            ? "Retail accounts are heavily crowded in short positions. Contending with this sentiment, proprietary order desks are sweeping discount sell-side stops, reinforcing probability-based continuation upward."
+                            : "Retail accounts are attempting to catch the falling knife. Commercial dealers are distributing supply into local resistance pops, validating the high-probability sell bias."
+                        )}
                       </p>
+                    </div>
+                  )}
+
+                  {/* TAB 4: SMART MONEY CONCEPTS (SMC) & ICC INSTITUTIONAL */}
+                  {activeTab === 'smc' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
+                          <div className="text-[10px] text-slate-500 font-mono uppercase">FVG / PVG Status</div>
+                          <div className="text-emerald-400 font-mono font-bold mt-1 text-xs">
+                            {(smcLiveAnalysis.fvgs || []).filter(f => !f.mitigated).length > 0
+                              ? `${(smcLiveAnalysis.fvgs || []).filter(f => !f.mitigated).length} Active FVG / PVG Zones`
+                              : 'Fully Mitigated'}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            50% CE: ${smcLiveAnalysis.fvgs?.[0]?.midCe?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price}
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
+                          <div className="text-[10px] text-slate-500 font-mono uppercase">Liquidity Pool Target</div>
+                          <div className="text-cyan-400 font-mono font-bold mt-1 text-xs">
+                            {smcLiveAnalysis.liquidityPools?.[0]?.type || 'BSL/SSL'} Draw
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            ${smcLiveAnalysis.liquidityPools?.[0]?.level?.toFixed(getDecimals(selectedAsset)) || selectedAsset.price} ({smcLiveAnalysis.liquidityPools?.[0]?.pipsAway || 0} pips away)
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
+                          <div className="text-[10px] text-slate-500 font-mono uppercase">Dealing Range 50% EQ</div>
+                          <div className={`font-mono font-bold mt-1 text-xs ${smcLiveAnalysis.premiumDiscount.currentZone === 'DISCOUNT' ? 'text-emerald-400' : smcLiveAnalysis.premiumDiscount.currentZone === 'PREMIUM' ? 'text-rose-400' : 'text-amber-400'}`}>
+                            {smcLiveAnalysis.premiumDiscount.currentZone} ({smcLiveAnalysis.premiumDiscount.premiumDiscountRatio}% Range)
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            EQ: ${smcLiveAnalysis.premiumDiscount.equilibrium?.toFixed(getDecimals(selectedAsset))}
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg">
+                          <div className="text-[10px] text-slate-500 font-mono uppercase">ICC System Status</div>
+                          <div className="text-amber-400 font-mono font-bold mt-1 text-xs">
+                            {smcLiveAnalysis.icc.currentPhase}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            {smcLiveAnalysis.icc.phaseStage} (Trigger: ${smcLiveAnalysis.icc.continuationTrigger})
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-lg font-mono text-xs space-y-2">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span>Institutional Structure Matrix:</span>
+                          <span className={smcLiveAnalysis.choch?.triggered ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                            {smcLiveAnalysis.choch?.triggered ? '⚡ Active CHoCH Trend Reversal' : 'Continuation BOS in Effect'}
+                          </span>
+                        </div>
+                        <p className="text-slate-300 leading-relaxed text-[11px]">
+                          Smart money footprints confirm order flow alignment. Order blocks (+OB Demand MT at ${smcLiveAnalysis.orderBlocks?.[0]?.meanThreshold?.toFixed(getDecimals(selectedAsset))} / -OB Supply MT at ${smcLiveAnalysis.orderBlocks?.[1]?.meanThreshold?.toFixed(getDecimals(selectedAsset))}) are strictly defended. Execution clearance is validated when entering in {isBullish ? 'Discount Accumulation (<50% EQ)' : 'Premium Distribution (>50% EQ)'}.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>

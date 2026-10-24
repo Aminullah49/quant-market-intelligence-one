@@ -12,6 +12,7 @@ import {
 import { 
   getDecimals, 
   calculateMarketStructureLevels, 
+  calculateSmartMoneyConcepts,
   STYLE_TPSL_PROFILES, 
   TradingStyleProfile 
 } from "../utils";
@@ -361,6 +362,15 @@ export default function TradeSetup({
 
   // Market Structure Data (Support S1-S3, Resistance R1-R3, HH/LL levels, and Reversal points)
   const structureData = tradeSetup?.structure || calculateMarketStructureLevels(
+    selectedAsset.price,
+    currentDir,
+    tradeSetup?.timeframe || 'H4',
+    assetDecimals,
+    selectedAsset.category
+  );
+
+  // Full Smart Money Concepts (SMC) Suite: FVG Imbalances, Liquidity Pools, CHoCH/BOS, Order Blocks
+  const smcData = tradeSetup?.smc || structureData.smc || calculateSmartMoneyConcepts(
     selectedAsset.price,
     currentDir,
     tradeSetup?.timeframe || 'H4',
@@ -1360,6 +1370,305 @@ export default function TradeSetup({
                   </p>
                 </div>
               </div>
+            </div>
+
+            {/* 4.5. DEDICATED SMART MONEY CONCEPTS (SMC) & INSTITUTIONAL LIQUIDITY TERMINAL */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-purple-500/35 space-y-4 font-mono shadow-xl relative overflow-hidden">
+              {/* Header */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-900 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-purple-500/15 text-purple-400 border border-purple-500/30 rounded-lg">
+                    <Layers className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">
+                        Smart Money Concepts (SMC) & Institutional Liquidity Terminal
+                      </span>
+                      <span className="text-[9px] bg-purple-500/20 text-purple-300 font-bold px-2 py-0.5 rounded border border-purple-500/30">
+                        {smcData.institutionalBias.replace("_", " ")}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-sans block mt-0.5">
+                      Algorithmic 3-candle Fair Value Gaps (FVG), Buy/Sell-Side Liquidity Pools (BSL/SSL), CHoCH & BOS Structural Flips
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-tight border ${
+                    smcData.premiumDiscount.currentZone === 'DISCOUNT'
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                      : smcData.premiumDiscount.currentZone === 'PREMIUM'
+                      ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                      : 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                  }`}>
+                    {smcData.premiumDiscount.currentZone} ZONE ({smcData.premiumDiscount.premiumDiscountRatio}% Range)
+                  </span>
+                </div>
+              </div>
+
+              {/* Dealing Range Equilibrium Visual Bar */}
+              <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-850 space-y-2">
+                <div className="flex justify-between items-center text-[10.5px]">
+                  <span className="text-slate-400">Institutional Dealing Range Valuation:</span>
+                  <span className="text-purple-300 font-bold">50% Equilibrium: ${smcData.premiumDiscount.equilibrium.toFixed(assetDecimals)}</span>
+                </div>
+                <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                  <div className="h-full bg-emerald-500/50 w-1/2" title="Discount Zone (Institutional Accumulation / Buy Zone)" />
+                  <div className="h-full bg-rose-500/50 w-1/2" title="Premium Zone (Institutional Distribution / Sell Zone)" />
+                </div>
+                <div className="flex justify-between text-[8.5px] text-slate-500">
+                  <span>Range Low: ${smcData.premiumDiscount.rangeLow.toFixed(assetDecimals)} (Deep Discount)</span>
+                  <span className="text-purple-400 font-bold">50% Equilibrium Line</span>
+                  <span>Range High: ${smcData.premiumDiscount.rangeHigh.toFixed(assetDecimals)} (Extreme Premium)</span>
+                </div>
+                <p className="text-[10px] text-slate-300 font-sans leading-snug pt-1 border-t border-slate-850/80">
+                  {smcData.premiumDiscount.smartMoneyVerdict}
+                </p>
+              </div>
+
+              {/* SMC Multi-Grid: FVGs & Liquidity Pools */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+                
+                {/* 1. FAIR VALUE GAPS (FVG) MATRIX */}
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-teal-500/25 space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-teal-400" />
+                      <span className="text-[10px] font-bold text-teal-300 uppercase tracking-wider">
+                        Fair Value Gaps (FVG Imbalance Matrix)
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-slate-400">3-Candle Displacements</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    {smcData.fvgs.map((fvg, idx) => {
+                      const isBull = fvg.type === "BULLISH_FVG";
+                      return (
+                        <div key={idx} className="p-2 bg-slate-950 rounded-lg border border-slate-850 space-y-1.5">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className={`font-bold uppercase ${isBull ? 'text-teal-300' : 'text-orange-300'}`}>
+                              {isBull ? '+Bullish FVG (Demand)' : '-Bearish FVG (Supply)'}
+                            </span>
+                            <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-bold ${
+                              fvg.mitigated ? 'bg-slate-800 text-slate-400' : 'bg-amber-500/20 text-amber-300'
+                            }`}>
+                              {fvg.mitigated ? 'Mitigated / Filled' : 'Fresh (Unmitigated)'}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-1.5 text-center text-[9.5px] bg-slate-900/60 p-1.5 rounded">
+                            <div>
+                              <span className="text-slate-500 block text-[8px]">TOP</span>
+                              <span className="font-bold text-white">${fvg.top.toFixed(assetDecimals)}</span>
+                            </div>
+                            <div>
+                              <span className="text-purple-400 block text-[8px] font-bold">50% CE</span>
+                              <span className="font-bold text-purple-300">${fvg.midCe.toFixed(assetDecimals)}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[8px]">BOTTOM</span>
+                              <span className="font-bold text-white">${fvg.bottom.toFixed(assetDecimals)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[9px] text-slate-400 font-sans">
+                            <span>Imbalance Gap: <strong className="text-slate-200 font-mono">{fvg.pipsSize} Pips</strong></span>
+                            <span>Institutional Inefficiency Retest</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. LIQUIDITY POOLS (BSL & SSL) */}
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-amber-500/25 space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <DollarSign className="h-3.5 w-3.5 text-amber-400" />
+                      <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                        Liquidity Pools (BSL & SSL Stop Targets)
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-amber-400/80">Resting Orders</span>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    {smcData.liquidityPools.map((liq, idx) => {
+                      const isBsl = liq.type === "BSL";
+                      return (
+                        <div key={idx} className="p-2 bg-slate-950 rounded-lg border border-slate-850 space-y-1">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className={`font-bold ${isBsl ? 'text-amber-300' : 'text-rose-300'}`}>
+                              $ {liq.type} &bull; {liq.poolType.replace("_", " ")}
+                            </span>
+                            <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-bold ${
+                              liq.swept ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                            }`}>
+                              {liq.swept ? 'SWEPT & PURGED' : `ACTIVE TARGET (${liq.pipsAway}p)`}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] font-bold">
+                            <span className="text-slate-400 font-normal text-[9.5px]">Pool Target Price:</span>
+                            <span className={isBsl ? 'text-amber-300' : 'text-rose-300'}>
+                              ${liq.level.toFixed(assetDecimals)}
+                            </span>
+                          </div>
+
+                          <p className="text-[8.5px] text-slate-400 font-sans leading-tight">
+                            {liq.description}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* SMC Order Blocks & Structural Flips (CHoCH / BOS) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {/* Institutional Order Blocks */}
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-indigo-500/25 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-indigo-400" />
+                      Institutional Order Blocks (OB)
+                    </span>
+                    <span className="text-[9px] text-indigo-400/80">Mean Threshold</span>
+                  </div>
+
+                  <div className="space-y-2 text-[10px]">
+                    {smcData.orderBlocks.map((ob, idx) => {
+                      const isBull = ob.type === "BULLISH_OB";
+                      return (
+                        <div key={idx} className="p-2 bg-slate-950 rounded-lg border border-slate-850 flex items-center justify-between">
+                          <div>
+                            <span className={`font-bold block ${isBull ? 'text-emerald-300' : 'text-rose-300'}`}>
+                              {isBull ? '+OB Bullish Demand Block' : '-OB Bearish Supply Block'}
+                            </span>
+                            <span className="text-[9px] text-slate-400">
+                              Zone: ${ob.bottom.toFixed(assetDecimals)} - ${ob.top.toFixed(assetDecimals)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-indigo-300 font-bold block text-[11px]">
+                              MT: ${ob.meanThreshold.toFixed(assetDecimals)}
+                            </span>
+                            <span className="text-[8.5px] text-slate-500">50% Mean Entry</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* CHoCH & BOS Institutional Flips */}
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-cyan-500/25 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Target className="h-3 w-3 text-cyan-400" />
+                      CHoCH & BOS Institutional Flips
+                    </span>
+                    <span className="text-[9px] text-cyan-400/80">Structure Rules</span>
+                  </div>
+
+                  <div className="space-y-2 text-[10px]">
+                    <div className="p-2 bg-slate-950 rounded-lg border border-slate-850 flex items-center justify-between">
+                      <div>
+                        <span className="text-cyan-300 font-bold block">CHoCH (Trend Reversal Flip)</span>
+                        <span className="text-[9px] text-slate-400">Breach invalidates current cycle</span>
+                      </div>
+                      <span className="text-cyan-400 font-bold font-mono text-xs">
+                        ${smcData.choch.level.toFixed(assetDecimals)}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-slate-950 rounded-lg border border-slate-850 flex items-center justify-between">
+                      <div>
+                        <span className="text-emerald-300 font-bold block">BOS (Trend Expansion Continuation)</span>
+                        <span className="text-[9px] text-slate-400">Breakout confirms impulse leg</span>
+                      </div>
+                      <span className="text-emerald-400 font-bold font-mono text-xs">
+                        ${smcData.bos.level.toFixed(assetDecimals)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ICC System (Indication · Correction · Continuation & Institutional Candle Confirmation) */}
+              <div className="p-3.5 bg-slate-900/70 rounded-xl border border-amber-500/30 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-amber-400" />
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                      ICC Trading System (Indication &bull; Correction &bull; Continuation)
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
+                    {smcData.icc?.phaseStage || 'Phase 3: Continuation (Entry Trigger)'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  {/* Indication */}
+                  <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-850 space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-400 uppercase font-bold">1. Indication (I)</span>
+                      <span className="text-emerald-400 font-bold">Completed</span>
+                    </div>
+                    <span className="text-white font-bold text-xs block">
+                      Target: ${smcData.icc?.indicationLevel.toFixed(assetDecimals)}
+                    </span>
+                    <p className="text-[9px] text-slate-400 font-sans leading-tight">
+                      First impulsive displacement breaking market structure, indicating institutional order flow direction.
+                    </p>
+                  </div>
+
+                  {/* Correction */}
+                  <div className="p-2.5 bg-slate-950 rounded-lg border border-slate-850 space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-slate-400 uppercase font-bold">2. Correction (C)</span>
+                      <span className="text-purple-400 font-bold">Mitigated</span>
+                    </div>
+                    <span className="text-white font-bold text-xs block">
+                      Zone: ${smcData.icc?.correctionZone.bottom.toFixed(assetDecimals)} - ${smcData.icc?.correctionZone.top.toFixed(assetDecimals)}
+                    </span>
+                    <p className="text-[9px] text-slate-400 font-sans leading-tight">
+                      Pullback into discount FVG/Order Block; liquidity collected without invalidating the protected reversal pivot.
+                    </p>
+                  </div>
+
+                  {/* Continuation */}
+                  <div className="p-2.5 bg-amber-950/20 rounded-lg border border-amber-500/40 space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-amber-300 uppercase font-bold">3. Continuation (C)</span>
+                      <span className="text-amber-400 font-bold animate-pulse">Live Trigger</span>
+                    </div>
+                    <span className="text-amber-300 font-bold text-xs block">
+                      Trigger: ${smcData.icc?.continuationTrigger.toFixed(assetDecimals)}
+                    </span>
+                    <p className="text-[9px] text-slate-300 font-sans leading-tight">
+                      Breakout continuation triggered by Institutional Confirmation Candle (ICC), resuming the primary trend.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-slate-950 rounded-lg border border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-[10.5px]">
+                  <span className="text-slate-300 font-sans">
+                    <strong className="text-amber-400 font-mono">Institutional Candle Confirmation (ICC):</strong> {smcData.icc?.iccCandleDetails}
+                  </span>
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 font-mono font-bold rounded text-[9.5px]">
+                    100% Rule Compliant
+                  </span>
+                </div>
+              </div>
+
             </div>
 
             {/* 5. DEDICATED PIP & MONETARY PNL CALCULATION SUMMARY BOX */}

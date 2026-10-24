@@ -81,6 +81,90 @@ export interface MarketAnalysisResponse {
   sentimentSummary: string;
   explanation: string;
   isMock?: boolean;
+  smc?: SmartMoneyConcepts;
+}
+
+// Fair Value Gap (FVG) / Price Value Gap (PVG) - Institutional 3-candle price imbalance
+export interface FairValueGap {
+  id: string;
+  type: 'BULLISH_FVG' | 'BEARISH_FVG';
+  top: number;
+  bottom: number;
+  midCe: number; // 50% Consequent Encroachment (CE)
+  candleIndex?: number;
+  mitigated: boolean;
+  label: string; // Dual-labeled as FVG / PVG (Price Value Gap)
+  pipsSize: number;
+  timeframe?: string;
+  isPvg?: boolean; // PVG alias indicator
+}
+
+export type PriceValueGap = FairValueGap; // Community & institutional alias for FVG
+
+export interface LiquidityPool {
+  id: string;
+  type: 'BSL' | 'SSL'; // Buy-Side Liquidity vs Sell-Side Liquidity
+  level: number;
+  label: string;
+  pipsAway: number;
+  swept: boolean;
+  poolType: 'EQUAL_HIGHS' | 'EQUAL_LOWS' | 'SESSION_HIGH' | 'SESSION_LOW' | 'SWING_HIGH' | 'SWING_LOW';
+  description: string;
+}
+
+export interface OrderBlock {
+  id: string;
+  type: 'BULLISH_OB' | 'BEARISH_OB';
+  top: number;
+  bottom: number;
+  meanThreshold: number; // 50% midpoint of the institutional candle
+  candleIndex?: number;
+  mitigated: boolean;
+  strength: 'Strong' | 'Prime' | 'Extreme';
+  label: string;
+  pipsSize: number;
+}
+
+export interface PremiumDiscountZone {
+  rangeHigh: number;
+  rangeLow: number;
+  equilibrium: number; // 50% Equilibrium price
+  currentZone: 'PREMIUM' | 'DISCOUNT' | 'EQUILIBRIUM';
+  premiumDiscountRatio: number; // 0 to 100% of dealing range
+  smartMoneyVerdict: string;
+}
+
+export interface ICCAnalysis {
+  currentPhase: 'INDICATION' | 'CORRECTION' | 'CONTINUATION';
+  phaseStage: 'Phase 1: Indication (Impulse)' | 'Phase 2: Correction (Retracement to FVG/OB)' | 'Phase 3: Continuation (Entry Trigger)';
+  indicationLevel: number; // Level where institutional displacement was indicated
+  correctionZone: { top: number; bottom: number }; // Zone where price is pulling back
+  continuationTrigger: number; // Breakout trigger to enter continuation
+  iccCandleDetected: boolean; // Institutional Confirmation Candle confirmed
+  iccCandleDetails: string;
+  ruleCompliance: string;
+}
+
+export interface SmartMoneyConcepts {
+  fvgs: FairValueGap[];
+  liquidityPools: LiquidityPool[];
+  orderBlocks: OrderBlock[];
+  premiumDiscount: PremiumDiscountZone;
+  choch: {
+    level: number;
+    direction: 'BULLISH_CHOCH' | 'BEARISH_CHOCH';
+    triggered: boolean;
+    explanation: string;
+  };
+  bos: {
+    level: number;
+    direction: 'BULLISH_BOS' | 'BEARISH_BOS';
+    triggered: boolean;
+    explanation: string;
+  };
+  icc?: ICCAnalysis;
+  institutionalBias: 'DISCOUNT_ACCUMULATION' | 'PREMIUM_DISTRIBUTION' | 'LIQUIDITY_RUN' | 'ORDER_FLOW_REVERSAL';
+  summary: string;
 }
 
 export interface MarketStructureLevels {
@@ -123,11 +207,13 @@ export interface MarketStructureLevels {
     invalidationThreshold: number;
     explanation: string;
   };
+  smc?: SmartMoneyConcepts;
 }
 
 export interface TradeSetupPlan {
   market?: string;
   timeframe?: string;
+  smc?: SmartMoneyConcepts;
   direction: 'BUY' | 'SELL' | 'WAIT' | 'NO TRADE';
   entryZone: string;
   
